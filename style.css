@@ -1,0 +1,203 @@
+/* style.css - UFO-TW Controller */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------- Toolbar ---------- */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #16213e;
+  border-bottom: 1px solid #0f3460;
+  flex-shrink: 0;
+}
+#toolbar button {
+  padding: 6px 14px;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 13px;
+}
+#toolbar button:hover { background: #0f3460; }
+#toolbar button.flip-on { background: #533483; border-color: #533483; }
+.badge {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: #333;
+}
+.badge.on { background: #0f6b3a; }
+
+/* ---------- Layout ---------- */
+#layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+#sidebar {
+  width: 260px;
+  border-right: 1px solid #0f3460;
+  overflow-y: auto;
+  background: #16213e;
+  flex-shrink: 0;
+}
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------- Playlist ---------- */
+#playlist { padding: 4px 0; }
+.pl-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid #0f3460;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pl-item:hover { background: #1a1a2e; }
+.pl-item.active { background: #0f3460; color: #fff; }
+.pl-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+  background: #333;
+}
+.pl-tag.csv { background: #0f6b3a; }
+.pl-tag.sub { background: #2a4a7f; }
+
+/* ---------- Player ---------- */
+#playerBox {
+  flex: 1;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  position: relative;
+}
+#player {
+  width: 100%;
+  height: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+#placeholder { color: #555; font-size: 16px; text-align: center; }
+#subDisplay {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 18px;
+  text-shadow: 1px 1px 4px #000;
+  padding: 4px 16px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.6);
+  max-width: 90%;
+  text-align: center;
+  pointer-events: none;
+  display: none;
+}
+
+/* ---------- Status Bar ---------- */
+#statusBar {
+  padding: 10px 16px;
+  background: #16213e;
+  border-top: 1px solid #0f3460;
+  flex-shrink: 0;
+}
+#waveWrap {
+  position: relative;
+  height: 50px;
+  background: #111;
+  border-radius: 3px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+#waveCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#wavePos {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: #e0e0e0;
+  pointer-events: none;
+}
+#timeText {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+}
+#actionText {
+  font-size: 13px;
+  color: #aaa;
+}
+
+/* ---------- Tutorial Modal ---------- */
+#tutorialOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#tutorialBox {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+#tutorialHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #0f3460;
+  font-size: 16px;
+}
+#tutorialContent {
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #c0c0c0;
+}
+#tutorialContent h4 {
+  margin-top: 16px;
+  color: #a78bfa;
+}
+#tutorialContent ul { padding-left: 20px; }
+#tutorialContent code {
+  background: #1a1a2e;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #a78bfa;
+}

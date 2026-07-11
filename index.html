@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UFO player</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: auto; text-align: center; }
+  .hero { max-width: 700px; padding: 60px 20px 40px; }
+  .hero h1 { font-size: 2.4rem; background: linear-gradient(135deg, #533483, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+  .hero p { color: #888; font-size: 15px; margin-bottom: 24px; }
+  .btn-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn-hero { padding: 12px 28px; border-radius: 6px; font-size: 15px; cursor: pointer; text-decoration: none; border: 1px solid #0f3460; background: #16213e; color: #e0e0e0; }
+  .btn-hero:hover { background: #0f3460; }
+  .btn-hero.primary { background: linear-gradient(135deg, #533483, #a855f7); border: none; color: #fff; }
+  .btn-hero.primary:hover { opacity: 0.85; }
+  .warning { background: #2a1a1a; border: 1px solid #6b3030; border-radius: 6px; padding: 14px 20px; margin: 24px auto 0; max-width: 520px; color: #fca5a5; font-size: 13px; text-align: left; }
+
+  /* Modal reused from style.css via inline */
+  #tutorialOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 999; display: flex; align-items: center; justify-content: center; display: none; }
+  #tutorialBox { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; width: 90%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; text-align: left; }
+  #tutorialHeader { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #0f3460; font-size: 16px; }
+  #tutorialContent { padding: 16px; overflow-y: auto; font-size: 13px; line-height: 1.7; color: #c0c0c0; }
+  #tutorialContent h4 { margin-top: 16px; color: #a78bfa; }
+  #tutorialContent ul { padding-left: 20px; }
+  #tutorialContent code { background: #1a1a2e; padding: 1px 5px; border-radius: 3px; color: #a78bfa; }
+  #tutorialContent b { color: #e0e0e0; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>🚀 UFO Player</h1>
+  <p>基于网页的蓝牙脚本播放器</p>
+
+  <div class="btn-group">
+    <a href="app.html" class="btn-hero primary">🎮 进入控制界面</a>
+    <button class="btn-hero" onclick="document.getElementById('tutorialOverlay').style.display='flex'">📖 使用教程</button>
+  </div>
+
+  <div class="warning">
+    ⚠️ 请使用 <b>Chrome 或 Edge 浏览器</b>（需要 Web Bluetooth 支持）。<br>
+    ESP32 需要提前烧录 <b>2in1 固件</b>。
+  </div>
+</div>
+
+<!-- 教程弹窗 -->
+<div id="tutorialOverlay" onclick="this.style.display='none'">
+  <div id="tutorialBox" onclick="event.stopPropagation()">
+    <div id="tutorialHeader">
+      <span>📖 使用教程</span>
+      <button onclick="document.getElementById('tutorialOverlay').style.display='none'" style="background:none;border:none;color:#aaa;font-size:20px;cursor:pointer;">&times;</button>
+    </div>
+    <div id="tutorialContent">
+
+      <h4>步骤  — 连接蓝牙</h4>
+      <p>确保 ESP32 已上电。点击 <b>"🔵 连接蓝牙"</b> 按钮，浏览器会弹出设备选择窗口。<br>选择 <b><code>UFO-TW</code></b> 设备完成配对。连接成功后右上角显示 <b>"已连接"</b>。</p>
+
+      <h4>步骤  — 打开文件夹</h4>
+      <p>点击 <b>"📁 打开文件夹"</b>，选择存放媒体文件的文件夹。<br>文件夹中需要包含：</p>
+      <ul>
+        <li>媒体文件：<code>.mp4 / .mp3 / .webm</code> 等</li>
+        <li>同名 CSV 脚本文件</li>
+        <li>同名 VTT 字幕文件（可选）</li>
+      </ul>
+      <p>📌 例如：<code>video1.mp4</code> + <code>video1.csv</code> + <code>video1.vtt</code></p>
+
+      <h4>步骤 4 — 开始播放</h4>
+      <p>在左侧播放列表点击一个文件，视频加载完成后点击 ▶ 播放按钮。</p>
+      <p><b>底部波形图</b>会显示脚本动作的强度预览，白色竖线是当前播放进度。</p>
+      <p>📌 播放完当前文件后，会自动切换到播放列表中的下一首。</p>
+      <p>📌 如果感觉左右电机方向反了，点击工具栏上的 <b>🔀 交换左右电机</b> 即可。</p>
+
+      <h4>📂 CSV 脚本格式说明</h4>
+      <p>程序支持两种常见的 CSV 格式：</p>
+      <ul>
+        <li><b>（5 列）</b>：<code>时间戳, 左方向, 左速度, 右方向, 右速度</code></li>
+        <li><b>（3 列）</b>：<code>时间戳, 方向, 速度</code>（左右同时运动）</li>
+      </ul>
+      <p>方向：<b><code>0</code></b> = 正向旋转，<b><code>1</code></b> = 反向旋转。</p>
+      <p>时间戳 = 数值 × <b>0.1 秒</b>（例如 <code>6636</code> = <b>663.6 秒</b> ≈ <b>约 11 分钟</b>）。</p>
+
+      <h4>❓ 常见问题</h4>
+      <ul>
+        <li><b>搜不到设备？</b> 确认 ESP32 已上电，并且烧录了正确的 <code>2in1</code> 固件。</li>
+        <li><b>连接成功但不动？</b> 检查 TB6612FNG 驱动板的 STBY 引脚是否拉高（GPIO 10）。</li>
+        <li><b>播放列表中没有任何文件？</b> 文件夹里需要有 <code>.mp4</code> 或 <code>.mp3</code> 等媒体文件。</li>
+        <li><b>网页提示不支持蓝牙？</b> 请更换为 Chrome 或 Edge 浏览器（Firefox / Safari 不支持 Web Bluetooth）。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

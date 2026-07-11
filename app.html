@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UFO-TW Controller</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="toolbar">
+  <button id="btnBLE" onclick="ble_connect()">🔵 连接蓝牙</button>
+  <span id="bleLabel" class="badge off">未连接</span>
+  <button id="btnFolder" onclick="folder_open()">📁 打开文件夹</button>
+  <span id="folderLabel"></span>
+  <button id="btnFlip" onclick="flip_toggle()" title="交换左右电机">🔀 交换左右电机</button>
+</div>
+
+<div id="layout">
+  <div id="sidebar">
+    <div id="playlist"></div>
+  </div>
+  <div id="main">
+    <div id="playerBox">
+      <video id="player" controls hidden></video>
+      <div id="subDisplay"></div>
+      <div id="placeholder">📂 点击"打开文件夹"加载媒体</div>
+    </div>
+    <div id="statusBar">
+      <div id="waveWrap"><canvas id="waveCanvas"></canvas><div id="wavePos"></div></div>
+      <div id="timeText">00:00 / 00:00</div>
+      <div id="actionText">未加载脚本</div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
