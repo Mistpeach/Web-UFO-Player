@@ -1,6 +1,8 @@
 ## 许可协议
-除ufoplayer之外，本项目所有代码采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 许可。
+本项目所有代码采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 许可。
 
-- **署名**：任何使用、修改或再发布时，必须在显著位置注明原始仓库地址：`https://github.com/你的用户名/你的仓库`
+- **署名**：任何使用、修改或再发布时，必须在显著位置注明本仓库地址
 - **非商业性使用**：不得将本项目或其衍生作品用于商业目的。
 - **相同方式共享**：如果你基于本项目进行修改或再发布，必须继续使用 CC BY-NC-SA 4.0 协议，并公开源代码。
+
+部署链接：https://web-ufo-player.1732410167-045.workers.dev/
