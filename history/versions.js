@@ -7,11 +7,18 @@
 // ---------------------------------------------------------------------------
 window.UFO_VERSIONS = [
   {
+    "dir": "v2.1",
+    "title": "v2.1",
+    "desc": "fix：页面布局问题",
+    "latest": true,
+    "url": "../app.html"
+  },
+  {
     "dir": "v2.0",
     "title": "v2.0",
     "desc": "目前首页版本-修改播放列表为抽屉样式。",
-    "latest": true,
-    "url": "../app.html"
+    "latest": false,
+    "url": "app/v2.0/app.html"
   },
   {
     "dir": "v1.0",
