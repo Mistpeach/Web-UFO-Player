@@ -270,11 +270,7 @@ function update_wave_pos() {
   $('wavePos').style.left = (Math.min(1, ratio) * $('waveWrap').clientWidth) + 'px';
 }
 
-window.addEventListener('resize', () => {
-  if (!script.length) return;
-  draw_waveform();
-  update_wave_pos();
-});
+window.addEventListener('resize', () => { if (script.length) draw_waveform(); });
 
 // ==================== SYNC ====================
 
