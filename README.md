@@ -6,3 +6,4 @@
 - **相同方式共享**：如果你基于本项目进行修改或再发布，必须继续使用 CC BY-NC-SA 4.0 协议，并公开源代码。
 
 部署链接：https://web-ufo-player.1732410167-045.workers.dev/
+国内免翻：https://web-ufo-player.yumfish.cn/

@@ -2,14 +2,13 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Controller</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScriptPlayer-v1.0</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <div id="toolbar">
-  <button id="btnDrawer" onclick="drawer_toggle()" aria-expanded="false" aria-controls="sidebar" title="展开 / 收起播放列表">☰ 播放列表</button>
   <button id="btnBLE" onclick="ble_connect()">🔵 连接蓝牙</button>
   <span id="bleLabel" class="badge off">未连接</span>
   <button id="btnFolder" onclick="folder_open()">📁 打开文件夹</button>
@@ -18,14 +17,8 @@
 </div>
 
 <div id="layout">
-  <div id="drawerBackdrop" onclick="drawer_close()"></div>
-  <div id="sidebar" aria-hidden="true">
-    <div id="drawerHeader">
-      <span id="drawerTitle">📃 播放列表<span id="plCount"></span></span>
-      <button id="drawerClose" onclick="drawer_close()" title="关闭播放列表（Esc）">✕ 关闭</button>
-    </div>
+  <div id="sidebar">
     <div id="playlist"></div>
-    <div id="drawerFoot">👆 点击列表项开始播放｜点遮罩、Esc 或「关闭」收起</div>
   </div>
   <div id="main">
     <div id="playerBox">

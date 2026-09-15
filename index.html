@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>UFO player</title>
+<title>UFO Assistant</title>
 <link rel="stylesheet" href="style.css">
 <style>
   body { display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: auto; text-align: center; }
@@ -15,46 +15,92 @@
   .btn-hero:hover { background: #0f3460; }
   .btn-hero.primary { background: linear-gradient(135deg, #533483, #a855f7); border: none; color: #fff; }
   .btn-hero.primary:hover { opacity: 0.85; }
-  .warning { background: #2a1a1a; border: 1px solid #6b3030; border-radius: 6px; padding: 14px 20px; margin: 24px auto 0; max-width: 520px; color: #fca5a5; font-size: 13px; text-align: left; }
 
-  /* Modal reused from style.css via inline */
-  #tutorialOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 999; display: flex; align-items: center; justify-content: center; display: none; }
-  #tutorialBox { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; width: 90%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; text-align: left; }
-  #tutorialHeader { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #0f3460; font-size: 16px; }
-  #tutorialContent { padding: 16px; overflow-y: auto; font-size: 13px; line-height: 1.7; color: #c0c0c0; }
-  #tutorialContent h4 { margin-top: 16px; color: #a78bfa; }
-  #tutorialContent ul { padding-left: 20px; }
-  #tutorialContent code { background: #1a1a2e; padding: 1px 5px; border-radius: 3px; color: #a78bfa; }
-  #tutorialContent b { color: #e0e0e0; }
+  /* ---------- 弹窗通用骨架（二级菜单 + 教程共用，避免重复样式） ---------- */
+  .ovl { position: fixed; inset: 0; background: rgba(0,0,0,0.75); align-items: center; justify-content: center; padding: 16px; }
+  /* 必须用 id 选择器：style.css 里有 #tutorialOverlay{display:flex}，类选择器压不住它 */
+  #menuOverlay, #waveMenuOverlay, #tutorialOverlay, #waveTutorialOverlay { display: none; }
+  .mbox { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; text-align: left; overflow: hidden; }
+  .mhead { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #0f3460; font-size: 15px; color: #e0e0e0; }
+  .mhead button { background: none; border: none; color: #aaa; font-size: 20px; line-height: 1; cursor: pointer; }
+  .mhead button:hover { color: #e0e0e0; }
+
+  /* 二级菜单弹窗 */
+  #menuOverlay, #waveMenuOverlay { z-index: 998; }
+  #menuBox, #waveMenuBox { max-width: 400px; }
+  .mbody { padding: 14px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+  .menu-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 16px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; font-size: 15px; font-family: inherit; text-decoration: none; cursor: pointer; text-align: left; }
+  .menu-item:hover { background: #0f3460; }
+  .menu-item.primary { background: linear-gradient(135deg, #533483, #a855f7); border: none; color: #fff; }
+  .menu-item.primary:hover { opacity: 0.88; }
+  .menu-item .hint { font-size: 11px; color: #8899aa; white-space: nowrap; }
+  .menu-item.primary .hint { color: rgba(255,255,255,0.85); }
+
+  /* 教程弹窗 */
+  #tutorialOverlay, #waveTutorialOverlay { z-index: 999; }
+  #tutorialBox, #waveTutorialBox { max-width: 620px; }
+  .mcontent { padding: 16px; overflow-y: auto; font-size: 13px; line-height: 1.7; color: #c0c0c0; }
+  .mcontent h4 { margin-top: 16px; color: #a78bfa; }
+  .mcontent ul { padding-left: 20px; }
+  .mcontent code { background: #1a1a2e; padding: 1px 5px; border-radius: 3px; color: #a78bfa; }
+  .mcontent b { color: #e0e0e0; }
 </style>
 </head>
 <body>
 
+<a class="gh-link gh-fixed" href="https://github.com/Mistpeach/Web-UFO-Player" target="_blank" rel="noopener" title="GitHub 仓库（新标签页打开）" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a>
+
 <div class="hero">
-  <h1>🚀 UFO Player</h1>
-  <p>基于网页的蓝牙脚本播放器</p>
+  <h1>🚀 UFO Assistant</h1>
+  <p>UFO助手</p>
 
   <div class="btn-group">
-    <a href="app.html" class="btn-hero primary">🎮 进入控制界面</a>
-    <button class="btn-hero" onclick="document.getElementById('tutorialOverlay').style.display='flex'">📖 使用教程</button>
-    <a href="history/index.html" class="btn-hero">📜 历史版本</a>
-    <a href="donate.html" class="btn-hero">💖 支持作者</a>
+    <button class="btn-hero primary" onclick="showMenu()" title="脚本播放器：二级菜单">🚀 脚本播放器</button>
+    <button class="btn-hero primary" onclick="showWaveMenu()" title="波形控制器：二级菜单">🌊 波形控制器</button>
   </div>
 
-  <div class="warning">
-    ⚠️ 请使用 <b>Chrome 或 Edge 浏览器</b>（需要 Web Bluetooth 支持）。<br>
-    ESP32 需要提前烧录 <b>2in1 固件</b>。
+  <div class="btn-group" style="margin-top: 12px;">
+    <a href="donate.html" class="btn-hero">💖 支持作者</a>
   </div>
 </div>
 
-<!-- 教程弹窗 -->
-<div id="tutorialOverlay" onclick="this.style.display='none'">
-  <div id="tutorialBox" onclick="event.stopPropagation()">
-    <div id="tutorialHeader">
-      <span>📖 使用教程</span>
-      <button onclick="document.getElementById('tutorialOverlay').style.display='none'" style="background:none;border:none;color:#aaa;font-size:20px;cursor:pointer;">&times;</button>
+<!-- 二级菜单：脚本播放器 -->
+<div id="menuOverlay" class="ovl" onclick="if(event.target===this)hideMenu()">
+  <div id="menuBox" class="mbox">
+    <div class="mhead">
+      <span>🚀 脚本播放器</span>
+      <button onclick="hideMenu()" title="关闭（Esc）">&times;</button>
     </div>
-    <div id="tutorialContent">
+    <div class="mbody">
+      <a class="menu-item primary" href="./ScriptPlayer/app.html" target="_blank" rel="noopener">🎮 进入控制界面<span class="hint">新标签页打开</span></a>
+      <a class="menu-item" href="./ScriptPlayer/history/history.html" target="_blank" rel="noopener">📜 历史版本<span class="hint">新标签页打开</span></a>
+      <button class="menu-item" onclick="openTutorialFromMenu()">📖 使用教程</button>
+    </div>
+  </div>
+</div>
+
+<!-- 二级菜单：波形控制器 -->
+<div id="waveMenuOverlay" class="ovl" onclick="if(event.target===this)hideWaveMenu()">
+  <div id="waveMenuBox" class="mbox">
+    <div class="mhead">
+      <span>🌊 波形控制器</span>
+      <button onclick="hideWaveMenu()" title="关闭（Esc）">&times;</button>
+    </div>
+    <div class="mbody">
+      <a class="menu-item primary" href="WaveControler/WaveApp.html" target="_blank" rel="noopener">🎮 进入控制界面<span class="hint">新标签页打开</span></a>
+      <button class="menu-item" onclick="openWaveTutorialFromMenu()">📖 使用教程</button>
+    </div>
+  </div>
+</div>
+
+<!-- 教程弹窗：脚本播放器 -->
+<div id="tutorialOverlay" class="ovl" onclick="if(event.target===this)hideTutorial()">
+  <div id="tutorialBox" class="mbox">
+    <div class="mhead">
+      <span>📖 使用教程</span>
+      <button onclick="hideTutorial()" title="关闭（Esc）">&times;</button>
+    </div>
+    <div class="mcontent" id="tutorialContent">
 
       <h4>步骤  — 连接蓝牙</h4>
       <p>确保 ESP32 已上电。点击 <b>"🔵 连接蓝牙"</b> 按钮，浏览器会弹出设备选择窗口。<br>选择设备完成配对。连接成功后右上角显示 <b>"已连接"</b>。</p>
@@ -94,6 +140,83 @@
     </div>
   </div>
 </div>
+
+<!-- 教程弹窗：波形控制器 -->
+<div id="waveTutorialOverlay" class="ovl" onclick="if(event.target===this)hideWaveTutorial()">
+  <div id="waveTutorialBox" class="mbox">
+    <div class="mhead">
+      <span>🌊 波形控制器使用教程</span>
+      <button onclick="hideWaveTutorial()" title="关闭（Esc）">&times;</button>
+    </div>
+    <div class="mcontent" id="waveTutorialContent">
+
+      <h4>它和「脚本播放器」有什么区别？</h4>
+      <p><b>脚本</b>：配合视频播放、10~20 分钟的长流程。<br>
+      <b>波形</b>：几秒到几十秒的<b>短动作模板</b>，选定后会<b>一直循环</b>播放 —— 不联动视频，纯手动控制。</p>
+
+      <h4>三步开始</h4>
+      <ul>
+        <li><b>① 连蓝牙</b>：点 <b>🔵 连接蓝牙</b> 选 <code>UFO-TW</code>，连上后徽章变「已连接」。</li>
+        <li><b>② 选波形</b>：点通道卡上的 <b>「选择波形…」</b>，在抽屉里点一个波形 —— <b>选定后会立即开始循环输出</b>。</li>
+        <li><b>③ 调强度</b>：拖 <b>强度</b> 滑杆（10%~150%）实时改转速；<b>相位</b> 用来把两通道错开节奏。</li>
+      </ul>
+
+      <h4>两个通道互相独立</h4>
+      <p>A / B 各有自己的波形、强度、相位和启停勾选框。想单独试某个通道，点该卡片的 <b>▶ 试一下</b>（只输出 2 秒）。</p>
+
+      <h4>示波器怎么看</h4>
+      <ul>
+        <li><b>上半 = 正转（青绿）</b>，<b>下半 = 反转（品红）</b>，中线是 0（停）</li>
+        <li>淡色曲线 = 波形的<b>目标值</b>；亮色折线 = <b>真正发出去的指令</b>（每 50ms 一个点）</li>
+        <li>白色竖线 = 播放头；<b>红色虚线</b>表示「强度 × 原始速度」超过 127 上限，超出的部分会被夹取</li>
+      </ul>
+
+      <h4>⏹ 全部停止：连点两次</h4>
+      <p>防误触：第一次点击只会让按钮闪一下并提示，<b>0.8 秒内再点一次</b>才会立即归零。<br>
+      切到后台 / 关闭页面 / 设备断开时，程序会<b>自动停止并发送 0</b>。</p>
+
+      <h4>导入自己的波形</h4>
+      <ul>
+        <li>点工具栏 <b>📥 导入 / 导出</b> →「选择文件」：可单选、可多选、也能直接选<b>波形包</b>（一个 <code>.json</code> 里打包多个波形）</li>
+        <li>批量：<b>「选择文件夹」</b> 会递归扫描里面的 <code>.json</code> / <code>.csv</code>，<b>不需要压缩包</b></li>
+        <li><b>⚠ CSV 注意</b>：程序<b>底层只使用 JSON</b>，CSV 只是交换格式，导入时会<b>自动转换且是有损的</b>（时间按 0.1 秒、方向 1 → 负值、超过 127 会夹取、3 列则 A/B 相同、正好落在循环点的末尾断点不会播放）。程序会弹出提示让你核对后再确认导入。</li>
+        <li>导出：单个波形 / 全部打包成一个文件 / 或<b>写入文件夹</b>（每个波形一个文件 + 一份格式说明）</li>
+      </ul>
+
+      <h4>数据存在哪</h4>
+      <p>存在<b>浏览器本地</b>：换浏览器、清缓存、本地打开与线上访问都<b>不共享</b>数据 —— 请用「导出」定期备份。</p>
+
+      <h4>❓ 常见问题</h4>
+      <ul>
+        <li><b>选了波形没反应？</b> 先确认已连接蓝牙（未连接也能看示波器动，但不会真的输出）。</li>
+        <li><b>感觉不到变化？</b> 每 50ms 才发一包，波形有效频率上限约 <b>10Hz</b>，太快的变化电机跟不上。</li>
+        <li><b>能和播放器页同时用吗？</b> 不能：BLE 是单连接，两个页面不能同时控制同一台设备。</li>
+        <li><b>强度拉满还是不够猛？</b> 说明该波形的原始速度就低（卡片上会显示「原始峰值」），换个峰值更高的波形。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 入口页：两个入口按钮 → 各自的二级菜单弹窗
+  function showMenu() { document.getElementById('menuOverlay').style.display = 'flex'; }
+  function hideMenu() { document.getElementById('menuOverlay').style.display = 'none'; }
+  function showTutorial() { document.getElementById('tutorialOverlay').style.display = 'flex'; }
+  function hideTutorial() { document.getElementById('tutorialOverlay').style.display = 'none'; }
+  function openTutorialFromMenu() { hideMenu(); showTutorial(); }          // 菜单 → 教程，避免两层弹窗叠着
+
+  function showWaveMenu() { document.getElementById('waveMenuOverlay').style.display = 'flex'; }
+  function hideWaveMenu() { document.getElementById('waveMenuOverlay').style.display = 'none'; }
+  function showWaveTutorial() { document.getElementById('waveTutorialOverlay').style.display = 'flex'; }
+  function hideWaveTutorial() { document.getElementById('waveTutorialOverlay').style.display = 'none'; }
+  function openWaveTutorialFromMenu() { hideWaveMenu(); showWaveTutorial(); }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    hideTutorial(); hideMenu();
+    hideWaveTutorial(); hideWaveMenu();
+  });
+</script>
 
 </body>
 </html>
