@@ -89,8 +89,7 @@ async function folder_open() {
     playlist.sort((a, b) => a.base.localeCompare(b.base));
     render_playlist();
     console.log('Playlist built:', playlist.length, 'items');
-    if (playlist.length > 0) pl_select(0, true);
-    drawer_open();
+    if (playlist.length > 0) pl_select(0);
   } catch (e) {
     if (e.name !== 'AbortError') console.log('Folder err:', e);
   }
@@ -98,7 +97,6 @@ async function folder_open() {
 
 function render_playlist() {
   const el = $('playlist');
-  $('plCount').textContent = '(' + playlist.length + ')';
   if (!playlist.length) {
     el.innerHTML = '<div style="padding:20px;color:#666;">未找到媒体文件</div>';
     return;
@@ -109,7 +107,7 @@ function render_playlist() {
   console.log('Playlist rendered');
 }
 
-async function pl_select(idx, keepOpen) {
+async function pl_select(idx) {
   const p = playlist[idx];
   if (!p) return;
   console.log('pl_select:', idx, p.base);
@@ -120,9 +118,6 @@ async function pl_select(idx, keepOpen) {
   // Highlight
   document.querySelectorAll('.pl-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.pl-item[data-idx="${idx}"]`)?.classList.add('active');
-
-  // Collapse the drawer (folder_open passes keepOpen=true to keep the list visible)
-  if (!keepOpen) drawer_close();
 
   // Media
   const file = await p.mh.getFile();
@@ -191,34 +186,6 @@ async function load_csv(h) {
   draw_waveform();
   console.log('CSV loaded:', script.length, 'actions');
 }
-
-// ==================== DRAWER ====================
-
-function drawer_open() {
-  $('sidebar').classList.add('open');
-  $('drawerBackdrop').classList.add('open');
-  $('btnDrawer').classList.add('drawer-on');
-  $('sidebar').setAttribute('aria-hidden', 'false');
-  $('btnDrawer').setAttribute('aria-expanded', 'true');
-  console.log('Drawer opened');
-}
-
-function drawer_close() {
-  $('sidebar').classList.remove('open');
-  $('drawerBackdrop').classList.remove('open');
-  $('btnDrawer').classList.remove('drawer-on');
-  $('sidebar').setAttribute('aria-hidden', 'true');
-  $('btnDrawer').setAttribute('aria-expanded', 'false');
-  console.log('Drawer closed');
-}
-
-function drawer_toggle() {
-  console.log('drawer_toggle() called');
-  if ($('sidebar').classList.contains('open')) drawer_close();
-  else drawer_open();
-}
-
-document.addEventListener('keydown', e => { if (e.key === 'Escape') drawer_close(); });
 
 // ---------- Waveform Canvas ----------
 function draw_waveform() {
