@@ -173,102 +173,7 @@
     return w;
   }
 
-  // ---------------- 跨标签页同步：波形编辑器保存后自动刷新 ----------------
-  // 编辑器（WaveEditor.html）与控制器同源，存储的是同一份 localStorage。
-  // 它保存时会触发 storage 事件（同源的其他标签页可见，本页自己写入不会触发），
-  // 于是这里清掉内存缓存并重新加载，控制器就能立刻看到编辑结果。
-  // 注意：只处理波形相关的键，绝不能理会 ufo.wave.settings.v1 ——
-  // 那是强度/相位/勾选状态，控制器的 oninput 会频繁写入，跟着刷新会造成抖动。
-  var syncing = false;
-
-  async function refreshFromStorage() {
-    if (syncing) return;
-    syncing = true;
-    try {
-      for (var k in state.cache) {
-        if (!state.presetsById[k]) delete state.cache[k];   // 内置示例是常量，无需清
-      }
-      await refreshLib();                                   // 重建波形库列表（state.cache 已清则重新读取）
-
-      var names = ['A', 'B'], changed = 0, dropped = 0;
-      for (var i = 0; i < 2; i++) {
-        var n = names[i], id = state.sel[n];
-        if (!id) continue;
-        var w = await getWave(id);
-        if (!w) {                                           // 波形在编辑器里被删掉了
-          state.sel[n] = null;
-          WC.engine.setWave(n, null);
-          WC.scope.setWave(n, null);
-          dropped++;
-        } else {
-          WC.engine.setWave(n, w);                          // 用新内容替换（强度/相位/勾选都不动）
-          WC.scope.setWave(n, w);
-          changed++;
-        }
-        updateCard(n);
-      }
-      WC.scope.markDirty();
-      WC.scope.renderOnce();
-      renderStatus();
-      if (dropped) toast('波形列表已更新：有 ' + dropped + ' 个正在使用的波形已被删除，该通道已停用', 'warn');
-      else if (changed) toast('波形已更新，通道已在用最新内容');
-    } finally {
-      syncing = false;
-    }
-  }
-
-  // ---------------- 切换波形 → 自动关断输出 ----------------
-  // 只作用于「原本就在输出」的通道：取消勾选并补发停机。
-  // 理由：不同波形的刺激强度差异很大，换波形后必须重新确认参数再开输出
-  //（和「选波形不改变输出状态」是同一条设计原则的延伸）。
-  //
-  // ⚠ 绝不能在这里 setWave(null)：波形已经由 selectWave 赋值好了，清掉的话
-  //   "重新勾选"时引擎手上没有波形 → 输出恒为 0 → 用户以为设备坏了（这是修过的 bug）。
-  //   关断只需要撤 enabled；enabled=false 时引擎本来就不输出非零值。
-  function cancelOutputs(which, why) {
-    var targets = which ? [which] : ['A', 'B'];
-    var touched = [];
-    targets.forEach(function (n) {
-      if (!WC.engine.ch[n].enabled) return;
-      touched.push(n);
-    });
-    if (!touched.length) return false;
-    touched.forEach(function (n) {
-      WC.engine.setEnabled(n, false);         // 只撤启用；setEnabled 会把该通道时间轴归零
-      var box = $('en-' + n);
-      if (box) box.checked = false;
-      updateCard(n);
-    });
-    try { WC.ble.send(0, 0); } catch (e) { }  // 明确补发停机
-    saveSettings();
-    updateRunUI(); renderStatus();
-    // 不弹提示：用户刚从波形库点了新波形，自己知道换了什么，静默关断即可
-    return true;
-  }
-
-  function setupStorageSync() {
-    window.addEventListener('storage', function (e) {
-      if (!e || !e.key || e.key.indexOf('ufo.wave.') !== 0) return;   // 只管波形，忽略 settings
-      refreshFromStorage();
-    });
-  }
-
-  // ---------------- 波形编辑器 → 控制器 的即时通知 ----------------
-  // 电磁器换/新建波形时用 postMessage 通知控制器关断输出。
-  // 编辑器本身不连蓝牙、不持有输出状态，但"用户要换波形"这个意图它最先知道，
-  // 所以由它发出信号、控制器决定怎么做（关断逻辑完全在控制器这边）。
-  function setupEditorChannel() {
-    window.addEventListener('message', function (e) {
-      var d = e && e.data;
-      var cmd = (typeof d === 'string') ? d : (d && d.ufo);
-      if (cmd === 'wave-change') cancelOutputs(null, '编辑器里切换了波形');
-    });
-  }
-
-  // 选波形只做「赋值」，绝不改变输出状态 —— 不勾选复选框、不启动引擎。
-  // 理由：用户选完波形通常还要调强度/相位，切换波形时刺激强度会变，必须先手动确认再开启输出。
-  // 想直接看/听效果请用通道卡上的「▶ 试一下」（它临时试 2 个完整周期，结束后自动停机并恢复原状态）。
-  // opts.quiet 静默赋值（初始化还原时用，不弹提示）
+  // opts.autoStart 默认 true：用户选定波形后立即开始循环播放
   async function selectWave(name, id, opts) {
     opts = opts || {};
     var w = await getWave(id);
@@ -276,36 +181,27 @@
     state.sel[name] = id;
     WC.engine.setWave(name, w);
     WC.scope.setWave(name, w);
+    if ($('en-' + name) && !$('en-' + name).checked) { $('en-' + name).checked = true; WC.engine.setEnabled(name, true); }
     updateCard(name);
     WC.scope.markDirty();
     saveSettings();
+    if (opts.autoStart !== false && !WC.engine.isRunning()) startEngine();
     renderLib();
-    if (opts.quiet !== true) toast('通道 ' + name + ' 已选用「' + w.name + '」');
+    if (opts.quiet !== true) toast('通道 ' + name + ' ← 「' + w.name + '」');
     return true;
   }
 
-  // 波形库的目标通道：点了卡片就赋给该通道；否则优先第一个还没选波形的通道，都选了则用 A
-  function pickTarget() {
-    if (state.pickFor) return state.pickFor;
-    if (!state.sel.A) return 'A';
-    if (!state.sel.B) return 'B';
-    return 'A';
-  }
-
   async function pick(id) {
-    var target = pickTarget();
-    var wasOn = WC.engine.ch[target].enabled;   // 记录切换前该通道是否在输出
+    var target = state.pickFor || (state.sel.A ? 'B' : 'A');
     var ok = await selectWave(target, id);
     state.pickFor = null;
-    if (!ok) return;
-    if (wasOn) cancelOutputs(target, '从波形库切换');
-    closeLib();
+    if (ok) closeLib();
   }
 
   function openLib(forCh) {
     state.pickFor = forCh || null;
-    var target = pickTarget();
-    $('libFoot').innerHTML = '👆 点击波形即赋给「通道 ' + target + '」（不会开启输出，需自行勾选启用并调节强度）｜点遮罩、Esc 或「关闭」收起';
+    var target = state.pickFor || (state.sel.A ? 'B' : 'A');
+    $('libFoot').innerHTML = '👆 点击波形即赋给「通道 ' + target + '」并立即循环播放｜点遮罩、Esc 或「关闭」收起';
     $('sidebar').classList.add('open');
     $('backdrop').classList.add('open');
     var bl = $('btnLib'); if (bl) bl.classList.add('drawer-on');
@@ -358,7 +254,6 @@
   async function connect() { await WC.ble.connect(); }
 
   function emergencyStop() {
-    cancelAllTests();
     var was = WC.engine.stop('emergency');
     WC.scope.stopLoop();
     updateRunUI(); renderStatus();
@@ -388,7 +283,6 @@
   }
 
   function toggleRun() {
-    cancelAllTests();      // 先作废试听定时器，否则它稍后会把「试听前的勾选状态」弹回来
     if (WC.engine.isRunning()) {
       WC.engine.stop('user'); WC.scope.stopLoop(); updateRunUI(); toast('已暂停（输出已归零）');
     } else startEngine();
@@ -397,11 +291,9 @@
   function toggleCh(n) {
     var on = $('en-' + n).checked;
     WC.engine.setEnabled(n, on);
+    if (!on) { }
     updateCard(n);
     saveSettings();
-    // 关断时立刻补发一条 0,0：引擎下一 tick 归零虽也会发，但明确停机更稳妥，
-    // 尤其波形首位非 0 时用户会期望「一取消勾选就停」。
-    if (!on) { try { WC.ble.send(0, 0); } catch (e) { } }
   }
 
   function onIntensity(n) {
@@ -419,71 +311,19 @@
     saveSettings();
   }
 
-  // ---------- 「▶ 试一下」：完整播放 2 个波形周期后自动停机 ----------
-  // 三条硬约束（都是踩过的坑）：
-  //   1) 周期结束后必须发停机指令 —— 波形首位可能不是 0，只撤 enabled 还不够，
-  //      必须确认真的把 0 发出去了，否则电机会一直转。
-  //   2) 绝不碰引擎的启停状态（不 start / 不 stop），急停的恢复状态由急停自己管。
-  //   3) 勾选即把该通道时间轴归零，所以试听一定从波形 t=0 开始，不会从中间切入。
-  var testTimers = { A: null, B: null };
-  var TEST_CYCLES = 2;           // 试听几个完整周期
-  var TEST_MAX_MS = 300000;      // 极端时长的兜底；只截断整周期数，不会把波形切一半
-
-  function cancelTest(n) {
-    var t = testTimers[n];
-    if (!t) return;
-    clearTimeout(t.id);
-    testTimers[n] = null;
-    t.done();
-  }
-
-  function cancelAllTests() {
-    ['A', 'B'].forEach(function (n) {
-      if (testTimers[n]) cancelTest(n);
-    });
-  }
-
   function testPulse(n) {
     if (!WC.ble.isReady()) { toast('未连接设备（也没开模拟输出），无法测试输出', 'warn'); return; }
-    if (!WC.engine.ch[n].wave) { toast('通道 ' + n + ' 还没选波形：请先点「选择波形…」选一个', 'warn'); return; }
-
-    cancelTest(n);                     // 连点同一通道：上一次试听作废，不留会还原状态的野定时器
-
     var was = WC.engine.ch[n].enabled;
-    var oneMs = F.durationOf(WC.engine.ch[n].wave) * 1000;
-    // 只允许裁掉整周期，绝不把波形切一半：超长波形至少也要完整播完 1 个周期
-    var cycles = Math.max(1, Math.min(TEST_CYCLES, Math.floor(TEST_MAX_MS / oneMs)));
-    var durMs = oneMs * cycles;
-
-    // 不必手动对齐相位：setEnabled(n, true) 会把该通道的时间原点挪到此刻，
-    // 所以试听天然从波形 t=0 开始（相位滑杆的偏移照旧生效，不会被清掉）。
-
-    // 引擎没在跑（刚急停过）时才拉起来；已在跑则完全不动它
+    WC.engine.setEnabled(n, true);
     if (!WC.engine.isRunning()) startEngine();
-
-    WC.engine.setEnabled(n, true);     // 放在 startEngine 之后：确保时间原点取的是引擎已就绪的时刻
-    var box = $('en-' + n);
-    if (box) box.checked = true;
-    updateCard(n);
-
-    var finish = function () {
+    $('en-' + n).checked = true;
+    toast('通道 ' + n + ' 测试 2 秒…');
+    setTimeout(function () {
       WC.engine.setEnabled(n, was);
-      var b2 = $('en-' + n);
-      if (b2) b2.checked = was;
+      $('en-' + n).checked = was;
       updateCard(n);
-      // 关键：波形结束就明确发一条停机指令。撤 enabled 只是让引擎不再输出非零值，
-      // 这里再补一发 0,0，确保首位非 0 的波形不会让电机继续转。
-      try { WC.ble.send(0, 0); } catch (e) { }
-    };
-
-    testTimers[n] = {
-      id: setTimeout(function () {
-        testTimers[n] = null;
-        finish();
-      }, durMs),
-      done: finish
-    };
-    toast('通道 ' + n + ' 正在试听 ' + cycles + ' 个完整周期（' + (durMs / 1000).toFixed(2) + ' 秒），结束会自动停机…');
+      if (!WC.engine.ch.A.enabled && !WC.engine.ch.B.enabled) { WC.engine.stop('user'); WC.scope.stopLoop(); updateRunUI(); }
+    }, 2000);
   }
 
   // ---------------- 导入导出模态框 ----------------
@@ -502,16 +342,6 @@
   function openIo(tab) { state.tab = tab || 'import'; renderIo(); $('ioModal').classList.add('open'); }
   function closeIo() { $('ioModal').classList.remove('open'); }
   function setTab(t) { state.tab = t; renderIo(); }
-
-  // ---------------- 顶部「保持前台运行」提示条 ----------------
-  function openTip() {
-    var m = $('fgTipModal');
-    if (m) m.classList.add('open');
-  }
-  function closeTip() {
-    var m = $('fgTipModal');
-    if (m) m.classList.remove('open');
-  }
 
   function renderIo() {
     var tabs = [['import', '📥 导入'], ['export', '📤 导出'], ['manage', '🧹 管理'], ['help', '📖 说明']];
@@ -637,17 +467,10 @@
     state.pending = null;
     for (var k in state.cache) if (!state.presetsById[k]) delete state.cache[k];
     await refreshLib();
+    var msg = '导入完成：新增 ' + res.added + '，覆盖 ' + res.overwritten + '，副本 ' + res.copied + '，跳过 ' + res.skipped;
+    if (res.errors.length) msg += '；失败 ' + res.errors.length + ' 个：' + res.errors.slice(0, 2).join(' / ');
     WC.ui.lastImportResult = res;
-    // 导入结果改成弹窗提示，比底部小字显著得多
-    var html = '<p class="ok">导入完成</p>' +
-      '<div class="kv">新增：<b>' + res.added + '</b> 个</div>' +
-      '<div class="kv">覆盖：<b>' + res.overwritten + '</b> 个</div>' +
-      '<div class="kv">副本：<b>' + res.copied + '</b> 个</div>' +
-      '<div class="kv">跳过：<b>' + res.skipped + '</b> 个</div>';
-    if (res.errors.length) {
-      html += '<div class="kv warnText">失败 ' + res.errors.length + ' 个：' + esc(res.errors.slice(0, 3).join('；')) + '</div>';
-    }
-    showInfo('📥 导入结果', html);
+    toast(msg, res.errors.length ? 'warn' : 'info');
     renderIo();
     renderStatus();
   }
@@ -730,101 +553,77 @@
 
   async function exportAll() {
     var bundle = await WC.store.exportBundle(null);
-    if (!bundle.waves.length) { showInfo('📤 导出', '<p class="warnText">没有可导出的用户波形（内置示例不参与导出）。</p>'); return; }
+    if (!bundle.waves.length) { toast('没有可导出的用户波形（内置示例不参与导出）', 'warn'); return; }
     WC.io.exportBundle(bundle);
-    showInfo('📤 导出完成', '<div class="kv">已导出 <b>' + bundle.waves.length + '</b> 个波形（波形包 JSON）。</div>' +
-      '<div class="kv">请到浏览器的下载目录查看。</div>');
+    toast('已导出 ' + bundle.waves.length + ' 个波形（波形包 JSON）');
   }
 
   async function exportFolder() {
     try {
       var metas = await WC.store.list(), waves = [], i, w;
       for (i = 0; i < metas.length; i++) { w = await getWave(metas[i].id); if (w) waves.push(w); }
-      if (!waves.length) { showInfo('📤 导出', '<p class="warnText">没有可导出的用户波形。</p>'); return; }
+      if (!waves.length) { toast('没有可导出的用户波形', 'warn'); return; }
       var n = await WC.io.writeToFolder(waves, false);
       WC.ui.lastExportCount = n;
-      showInfo('📤 导出完成', '<div class="kv">已写入 <b>' + n + '</b> 个 .json 文件。</div>' +
-        '<div class="kv">同时写入了一份 <b>README.txt</b> 格式说明。</div>');
+      toast('已写入 ' + n + ' 个 .json 文件（含 README.txt 格式说明）');
     } catch (e) {
       if (e && e.name === 'AbortError') return;
-      showInfo('📤 导出失败', '<p class="warnText">' + esc(e.message || String(e)) + '</p>');
+      toast('写入文件夹失败：' + (e.message || e), 'warn');
     }
   }
 
   async function exportCurrent(ch, asCsv) {
     var id = state.sel[ch];
-    if (!id) { showInfo('📤 导出', '<p class="warnText">通道 ' + esc(ch) + ' 还没有选择波形。</p>'); return; }
+    if (!id) { toast('通道 ' + ch + ' 还没有选择波形', 'warn'); return; }
     var w = await getWave(id);
-    if (!w) { showInfo('📤 导出失败', '<p class="warnText">波形读取失败。</p>'); return; }
+    if (!w) { toast('波形读取失败', 'warn'); return; }
     WC.io.exportOne(w, !!asCsv);
-    showInfo('📤 导出完成', '<div class="kv">已导出「<b>' + esc(w.name) + '</b>」为 ' +
-      (asCsv ? '<b>CSV</b>（会丢失名称/时长/线性插值等元数据）' : '<b>JSON</b>') + '。</div>');
+    toast('已导出「' + w.name + '」为 ' + (asCsv ? 'CSV（会丢元数据）' : 'JSON'));
   }
 
   async function exportById(id) {
     var w = await getWave(id);
-    if (!w) return;
-    WC.io.exportOne(w, false);
-    showInfo('📤 导出完成', '<div class="kv">已导出「<b>' + esc(w.name) + '</b>」为 JSON。</div>');
+    if (w) { WC.io.exportOne(w, false); toast('已导出「' + w.name + '」'); }
   }
 
   async function renameWave(id) {
     var w = await getWave(id);
     if (!w) return;
-    // 用统一样式的输入弹窗替代浏览器原生 prompt
-    askPrompt({
-      title: '✏️ 重命名波形',
-      text: '当前名称：<b>' + esc(w.name) + '</b>',
-      value: w.name,
-      okLabel: '保存名称',
-      onOk: async function (val) {
-        var name = String(val === undefined || val === null ? '' : val).trim().slice(0, 40);
-        if (!name) { showInfo('✏️ 重命名失败', '<p class="warnText">名称不能为空。</p>'); return; }
-        w.name = name; w.updatedAt = Date.now();
-        await WC.store.put(w);
-        await refreshLib();
-        if (state.sel.A === id) updateCard('A');
-        if (state.sel.B === id) updateCard('B');
-        renderIo(); renderStatus();
-        showInfo('✏️ 重命名成功', '<div class="kv">已重命名为「<b>' + esc(name) + '</b>」。</div>');
-      }
-    });
+    var name = prompt('新的波形名：', w.name);
+    if (name === null) return;
+    name = String(name).trim().slice(0, 40);
+    if (!name) { toast('名称不能为空', 'warn'); return; }
+    w.name = name; w.updatedAt = Date.now();
+    await WC.store.put(w);
+    await refreshLib();
+    if (state.sel.A === id) updateCard('A');
+    if (state.sel.B === id) updateCard('B');
+    toast('已重命名为「' + name + '」');
+    renderIo(); renderStatus();
   }
 
   async function editDuration(id) {
     var w = await getWave(id);
     if (!w) return;
-    askPrompt({
-      title: '⏱ 修改循环时长',
-      text: '当前时长：<b>' + w.duration + ' 秒</b><br>循环周期，从最后一个断点保持到这里再回绕到开头。',
-      value: String(w.duration),
-      inputType: 'number',
-      min: '0.05',
-      step: '0.05',
-      okLabel: '保存时长',
-      onOk: async function (val) {
-        var d = parseFloat(val);
-        if (!isFinite(d) || d <= 0) { showInfo('⏱ 修改失败', '<p class="warnText">时长无效，必须是大于 0 的数字。</p>'); return; }
-        var maxT = 0;
-        ['A', 'B'].forEach(function (n) {
-          var pts = w.channels[n] || [];
-          if (pts.length) maxT = Math.max(maxT, pts[pts.length - 1][0]);
-        });
-        var fixed = F.normalize({ name: w.name, duration: d, mode: w.mode, base: w.base, channels: w.channels, notes: w.notes, createdAt: w.createdAt }, { id: id });
-        state.cache[id] = fixed;
-        await WC.store.put(fixed);
-        if (state.sel.A === id) { WC.engine.setWave('A', fixed); WC.scope.setWave('A', fixed); updateCard('A'); }
-        if (state.sel.B === id) { WC.engine.setWave('B', fixed); WC.scope.setWave('B', fixed); updateCard('B'); }
-        WC.scope.markDirty(); WC.scope.renderOnce();
-        await refreshLib();
-        renderIo();
-        var html = '<div class="kv">循环时长已改为 <b>' + fixed.duration + ' 秒</b>。</div>';
-        if (d < maxT) {
-          html += '<div class="kv warnText">原输入 ' + d + 's 小于最后一个断点（' + maxT + 's），已自动拉长为 ' + fixed.duration + 's。</div>';
-        }
-        showInfo('⏱ 修改成功', html);
-      }
+    var s = prompt('循环时长（秒），当前 ' + w.duration + '：', String(w.duration));
+    if (s === null) return;
+    var d = parseFloat(s);
+    if (!isFinite(d) || d <= 0) { toast('时长无效', 'warn'); return; }
+    var maxT = 0;
+    ['A', 'B'].forEach(function (n) {
+      var pts = w.channels[n] || [];
+      if (pts.length) maxT = Math.max(maxT, pts[pts.length - 1][0]);
     });
+    var fixed = F.normalize({ name: w.name, duration: d, mode: w.mode, base: w.base, channels: w.channels, notes: w.notes, createdAt: w.createdAt }, { id: id });
+    state.cache[id] = fixed;
+    await WC.store.put(fixed);
+    if (d < maxT) toast('时长小于最后一个断点（' + maxT + 's），已自动拉长为 ' + fixed.duration + 's', 'warn');
+    if (state.sel.A === id) { WC.engine.setWave('A', fixed); WC.scope.setWave('A', fixed); updateCard('A'); }
+    if (state.sel.B === id) { WC.engine.setWave('B', fixed); WC.scope.setWave('B', fixed); updateCard('B'); }
+    WC.scope.markDirty(); WC.scope.renderOnce();
+    await refreshLib();
+    toast('时长已改为 ' + fixed.duration + 's');
+    renderIo();
   }
 
   async function viewRaw(id) {
@@ -836,93 +635,20 @@
   async function deleteWave(id) {
     var w = await getWave(id);
     if (!w) return;
-    // 用统一样式的确认弹窗替代浏览器原生 confirm
-    askConfirm({
-      title: '🗑 确认删除',
-      text: '删除波形「<b>' + esc(w.name) + '</b>」？<br>不可撤销，建议先在「导出」里备份。',
-      okLabel: '确定删除',
-      danger: true,
-      onOk: async function () {
-        await WC.store.remove(id);
-        delete state.cache[id];
-        ['A', 'B'].forEach(function (n) {
-          if (state.sel[n] === id) {
-            state.sel[n] = null;
-            WC.engine.setWave(n, null); WC.scope.setWave(n, null); updateCard(n);
-          }
-        });
-        await refreshLib();
-        saveSettings();
-        renderIo(); renderStatus();
-        showInfo('🗑 已删除', '<div class="kv">已删除「<b>' + esc(w.name) + '</b>」。</div>');
+    if (!confirm('删除波形「' + w.name + '」？不可撤销（建议先导出备份）。')) return;
+    await WC.store.remove(id);
+    delete state.cache[id];
+    ['A', 'B'].forEach(function (n) {
+      if (state.sel[n] === id) {
+        state.sel[n] = null;
+        WC.engine.setWave(n, null); WC.scope.setWave(n, null); updateCard(n);
       }
     });
+    await refreshLib();
+    saveSettings();
+    toast('已删除「' + w.name + '」');
+    renderIo(); renderStatus();
   }
-
-  // ---------------- 统一确认 / 输入弹窗 ----------------
-  // 替代浏览器原生 confirm / prompt，样式与页面一致。
-  // 全部是回调式（异步语义），调用方不要再写 "if (!confirm(...)) return;"。
-  var askState = null;
-
-  function askConfirm(opts) {
-    opts = opts || {};
-    askState = { onOk: opts.onOk || null, onCancel: opts.onCancel || null };
-    $('askTitle').textContent = opts.title || '请确认';
-    $('askText').innerHTML = opts.text || '';
-    var okBtn = $('askOk');
-    okBtn.textContent = opts.okLabel || '确定';
-    okBtn.className = opts.danger ? 'danger' : 'primary';
-    $('askField').style.display = 'none';
-    $('askModal').classList.add('open');
-    try { okBtn.focus(); } catch (e) { }
-  }
-
-  function askPrompt(opts) {
-    opts = opts || {};
-    askState = { onOk: opts.onOk || null, onCancel: opts.onCancel || null };
-    $('askTitle').textContent = opts.title || '请输入';
-    $('askText').innerHTML = opts.text || '';
-    var okBtn = $('askOk');
-    okBtn.textContent = opts.okLabel || '确定';
-    okBtn.className = opts.danger ? 'danger' : 'primary';
-    var f = $('askField'), inp = $('askInput');
-    f.style.display = '';
-    inp.type = opts.inputType || 'text';
-    inp.value = (opts.value === undefined || opts.value === null) ? '' : String(opts.value);
-    if (opts.min !== undefined) inp.min = opts.min;
-    if (opts.max !== undefined) inp.max = opts.max;
-    if (opts.step !== undefined) inp.step = opts.step;
-    $('askModal').classList.add('open');
-    setTimeout(function () {
-      try { inp.focus(); inp.select(); } catch (e) { }
-    }, 30);
-  }
-
-  function askOk() {
-    var st = askState;
-    askState = null;
-    $('askModal').classList.remove('open');
-    if (!st || typeof st.onOk !== 'function') return;
-    var hasField = $('askField').style.display !== 'none';
-    st.onOk(hasField ? $('askInput').value : undefined);
-  }
-
-  function askCancel() {
-    var st = askState;
-    askState = null;
-    $('askModal').classList.remove('open');
-    if (st && typeof st.onCancel === 'function') st.onCancel();
-  }
-  function isAskOpen() { return $('askModal').classList.contains('open'); }
-
-  // ---------------- 统一结果提示弹窗 ----------------
-  function showInfo(title, html) {
-    $('infoTitle').textContent = title || '提示';
-    $('infoBody').innerHTML = html || '';
-    $('infoModal').classList.add('open');
-  }
-  function closeInfo() { $('infoModal').classList.remove('open'); }
-  function isInfoOpen() { return $('infoModal').classList.contains('open'); }
 
   // ---------------- 打开时的强制提醒（测试版 / 导出备份） ----------------
   var pendingNotice = '';
@@ -979,20 +705,16 @@
     WC.scope.resize();
 
     WC.engine.onStop = function (reason) {
-      cancelAllTests();      // 引擎停了（用户暂停 / 急停 / 页面关闭），试听定时器必须一起作废
       updateRunUI();
-      if (reason === 'emergency') toast('已急停并归零', 'warn');
+      if (reason === 'hidden') toast('页面切到后台：已自动停止并归零（安全保护）', 'warn');
+      else if (reason === 'emergency') toast('已急停并归零', 'warn');
     };
 
     WC.ble.onState = function (on, detail) {
       $('bleLabel').textContent = on ? '已连接' : '未连接';
       $('bleLabel').className = 'badge ' + (on ? 'on' : 'off');
       if (detail) toast(detail, on ? 'info' : 'warn');
-      // 默认打开：连上设备就让引擎跑起来（时钟+50ms tick）。
-      // 真正决定电机转不转的是两个通道的复选框，顶部按钮只承担急停/暂停职责。
-      if (on && !WC.engine.isRunning()) startEngine();
       renderStatus();
-      updateRunUI();
     };
 
     var s = state.settings, i, names = ['A', 'B'], key;
@@ -1011,9 +733,8 @@
     }
 
     await refreshLib();
-    // 恢复上次选中的波形（静默，不弹提示）；是否启用单独在下面按保存的勾选状态恢复
-    if (s.selA) await selectWave('A', s.selA, { quiet: true });
-    if (s.selB) await selectWave('B', s.selB, { quiet: true });
+    if (s.selA) await selectWave('A', s.selA, { autoStart: false, quiet: true });
+    if (s.selB) await selectWave('B', s.selB, { autoStart: false, quiet: true });
     for (i = 0; i < 2; i++) {
       key = names[i];
       if (typeof s['en' + key] === 'boolean') {
@@ -1025,16 +746,11 @@
 
     setInterval(renderStatus, 500);
     setInterval(renderLive, 120);
-    setupStorageSync();                 // 编辑器保存后自动同步（同源 storage 事件）
-    setupEditorChannel();               // 编辑器切换波形 → 关断输出（postMessage）
     window.addEventListener('resize', function () { WC.scope.resize(); WC.scope.renderOnce(); });
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       if (isNoticeOpen()) return;                 // 强制确认期间，Esc 无效
-      if (isInfoOpen()) { closeInfo(); return; }  // 结果弹窗优先关
-      if (isAskOpen()) { askCancel(); return; }   // 确认/输入弹窗次之
       closeLib();
-      closeTip();
       if ($('ioModal').classList.contains('open')) closeIo();
     });
 
@@ -1048,24 +764,19 @@
   WC.ui = {
     init: init, state: state,
     // 波形库抽屉
-    toggleLib: toggleLib, openLib: openLib, closeLib: closeLib, pick: pick, pickFor: pickFor, pickTarget: pickTarget, renderLib: renderLib,
+    toggleLib: toggleLib, openLib: openLib, closeLib: closeLib, pick: pick, pickFor: pickFor, renderLib: renderLib,
     // 通道控制
     toggleCh: toggleCh, onIntensity: onIntensity, onPhase: onPhase, testPulse: testPulse, selectWave: selectWave,
     // 工具栏
     connect: connect, emergencyStop: emergencyStop, requestStop: requestStop, toggleRun: toggleRun,
-    cancelOutputs: cancelOutputs,
     // 模态框 / 导入导出 / 管理
     openIo: openIo, closeIo: closeIo, setTab: setTab,
-    openTip: openTip, closeTip: closeTip,
-    askConfirm: askConfirm, askPrompt: askPrompt, askOk: askOk, askCancel: askCancel, isAskOpen: isAskOpen,
-    showInfo: showInfo, closeInfo: closeInfo, isInfoOpen: isInfoOpen,
     chooseFiles: chooseFiles, chooseFolder: chooseFolder,
     onFiles: onFiles, runImport: runImport, confirmImport: confirmImport, cancelImport: cancelImport,
     exportAll: exportAll, exportFolder: exportFolder, exportCurrent: exportCurrent, exportById: exportById,
     renameWave: renameWave, editDuration: editDuration, viewRaw: viewRaw, deleteWave: deleteWave,
     // 调试 / 测试用
     renderStatus: renderStatus, renderLive: renderLive, startEngine: startEngine, stopEngine: stopEngine,
-    cancelTest: cancelTest, cancelAllTests: cancelAllTests, testTimers: testTimers,
     showNotice: showNotice, closeNotice: closeNotice, onNoticeCheck: onNoticeCheck, isNoticeOpen: isNoticeOpen,
     importHtml: importHtml, exportHtml: exportHtml, manageHtml: manageHtml, helpHtml: helpHtml,
     lastImportResult: null, lastExportCount: 0, ready: false

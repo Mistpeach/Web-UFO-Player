@@ -1,0 +1,327 @@
+/* style.css - UFO-TW Controller */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------- GitHub 图标链接（右上角） ---------- */
+.gh-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #0f3460;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.gh-link:hover { background: #0f3460; color: #fff; }
+.gh-link:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+.gh-link svg { width: 20px; height: 20px; display: block; }
+/* 放进工具栏时推到最右（= 页面右上角） */
+.gh-in-toolbar { margin-left: auto; }
+/* 首页没有工具栏 → 固定在右上角 */
+.gh-fixed {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  z-index: 50;
+}
+@media (max-width: 480px) {
+  .gh-link { width: 30px; height: 30px; }
+  .gh-link svg { width: 18px; height: 18px; }
+  .gh-fixed { top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); }
+}
+
+/* ---------- Toolbar ---------- */
+#toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 16px;
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
+  background: #16213e;
+  border-bottom: 1px solid #0f3460;
+  flex-shrink: 0;
+}
+#toolbar button {
+  padding: 6px 14px;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+#toolbar button:hover { background: #0f3460; }
+#toolbar button.flip-on { background: #533483; border-color: #533483; }
+#toolbar button.drawer-on { background: #533483; border-color: #533483; }
+.badge {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: #333;
+}
+.badge.on { background: #0f6b3a; }
+
+/* ---------- Layout ---------- */
+#layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ---------- Playlist Drawer ---------- */
+#sidebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(280px, 82vw);
+  padding-left: env(safe-area-inset-left);
+  display: flex;
+  flex-direction: column;
+  background: #16213e;
+  border-right: 1px solid #0f3460;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.5);
+  z-index: 31;
+  transform: translateX(-100%);
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.25s ease, visibility 0s linear 0.25s;
+}
+#sidebar.open { transform: translateX(0); visibility: visible; pointer-events: auto; transition: transform 0.25s ease, visibility 0s linear 0s; }
+
+#drawerBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 30;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+}
+#drawerBackdrop.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 0.25s ease, visibility 0s linear 0s; }
+
+#drawerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #0f3460;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+#drawerTitle { color: #e0e0e0; white-space: nowrap; }
+#plCount { margin-left: 4px; font-size: 12px; color: #888; }
+#drawerClose {
+  padding: 4px 10px;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#drawerClose:hover { background: #0f3460; }
+#drawerFoot {
+  padding: 8px 12px;
+  border-top: 1px solid #0f3460;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #888;
+  flex-shrink: 0;
+}
+#main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------- Playlist ---------- */
+#playlist { flex: 1; overflow-y: auto; padding: 4px 0; }
+.pl-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid #0f3460;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pl-item:hover { background: #1a1a2e; }
+.pl-item.active { background: #0f3460; color: #fff; }
+.pl-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+  background: #333;
+}
+.pl-tag.csv { background: #0f6b3a; }
+.pl-tag.sub { background: #2a4a7f; }
+
+/* ---------- Player ---------- */
+#playerBox {
+  flex: 1;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  position: relative;
+}
+#player {
+  width: 100%;
+  height: 100%;
+  max-height: 70dvh;
+  object-fit: contain;
+}
+#placeholder { color: #555; font-size: 16px; text-align: center; }
+#subDisplay {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 18px;
+  text-shadow: 1px 1px 4px #000;
+  padding: 4px 16px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.6);
+  max-width: 90%;
+  text-align: center;
+  pointer-events: none;
+  display: none;
+}
+
+/* ---------- Status Bar ---------- */
+#statusBar {
+  padding: 10px 16px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  background: #16213e;
+  border-top: 1px solid #0f3460;
+  flex-shrink: 0;
+}
+#waveWrap {
+  position: relative;
+  height: 50px;
+  background: #111;
+  border-radius: 3px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+#waveCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#wavePos {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: #e0e0e0;
+  pointer-events: none;
+}
+#timeText {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+}
+#actionText {
+  font-size: 13px;
+  color: #aaa;
+}
+
+/* ---------- Tutorial Modal ---------- */
+#tutorialOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#tutorialBox {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+#tutorialHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #0f3460;
+  font-size: 16px;
+}
+#tutorialContent {
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #c0c0c0;
+}
+#tutorialContent h4 {
+  margin-top: 16px;
+  color: #a78bfa;
+}
+#tutorialContent ul { padding-left: 20px; }
+#tutorialContent code {
+  background: #1a1a2e;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #a78bfa;
+}
+
+/* ---------- Mobile / Short Viewport ---------- */
+@media (max-width: 480px) {
+  #toolbar {
+    gap: 8px;
+    padding: 6px 10px;
+    padding-left: calc(10px + env(safe-area-inset-left));
+    padding-right: calc(10px + env(safe-area-inset-right));
+  }
+  #toolbar button { padding: 5px 10px; font-size: 12px; }
+  .badge { font-size: 11px; padding: 2px 8px; }
+  #waveWrap { height: 44px; }
+}
+
+@media (max-height: 420px) {
+  #waveWrap { height: 38px; }
+  #statusBar {
+    padding: 6px calc(12px + env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+  }
+  #timeText { font-size: 11px; margin-bottom: 2px; }
+  #actionText { font-size: 12px; }
+}
+

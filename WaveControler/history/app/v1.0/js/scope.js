@@ -143,21 +143,24 @@
     ctx.restore();
   }
 
+  function curLoopStartMs(now) {
+    var c = { A: WC.engine.ch.A, B: WC.engine.ch.B };
+    var dur = F.durationOf(c.A.wave || c.B.wave || { duration: 1 }) * 1000;
+    var startAt = WC.engine.startAt();
+    if (!dur) return startAt;
+    return startAt + Math.floor((now - startAt) / dur) * dur;
+  }
+
   function drawSent(v, name) {
     var ctx = v.ctx, h = v.h, pad = 6, i;
-    // 只有启用的通道才画实发轨迹。禁用通道虽然也在同一个 BLE 包里发（值恒为 0），
-    // 但把它画出来只会在中线上糊一排白点（就是之前那个"另一侧中轴刷白线"的 bug）。
-    // 另外：startedAt 不能当作"是否启用"的依据 —— engine.start() 会把两个通道一起置成启动时刻。
-    if (!WC.engine.ch[name].enabled) return;
-    var startedAt = WC.engine.ch[name].startedAt;   // 该通道自己的时间原点，和引擎实际发出的时间轴一致
-    if (!startedAt) return;
     var durMs = F.durationOf(v.wave) * 1000;
-    var loopStart = Math.floor((nowMs() - startedAt) / durMs) * durMs + startedAt;
+    var startAt = WC.engine.startAt();
+    var loopStart = curLoopStartMs(nowMs());
     var pts = [], dots = [];
     for (i = 0; i < WC.engine.ring.length; i++) {
       var e = WC.engine.ring[i];
       if (e.t < loopStart) continue;
-      var ph = ((e.t - startedAt) % durMs) / durMs;
+      var ph = ((e.t - startAt) % durMs) / durMs;
       if (ph < 0) continue;
       var val = (name === 'A' ? e.a : e.b);
       pts.push([ph * v.w, yOf(val, h, pad)]);

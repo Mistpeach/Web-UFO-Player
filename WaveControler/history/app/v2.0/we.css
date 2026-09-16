@@ -1,0 +1,306 @@
+/* ============================================================
+   we.css - 波形编辑器专属样式
+   在 ./style.css 与 ./wc.css 之后加载：
+   复用它们提供的调色板、#toolbar、.badge、.toast、.mbox（弹窗骨架）
+   这里只写编辑器自己的布局：#body / #plot / 画布叠合 / 轴控制 / 自绘滚动条 / 状态栏
+   ============================================================ */
+
+/* ---------- 页面骨架：与控制器不同，编辑器不用 #layout 抽屉布局 ---------- */
+.editorBody { overflow: hidden; }
+
+#body {
+  flex: 1; min-height: 0; position: relative;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+#main { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+
+.pane { flex: 1; min-height: 0; display: none; }
+.pane.on { display: flex; flex-direction: column; }
+
+/* ---------- 顶栏补充 ---------- */
+.tbSep { width: 1px; height: 20px; background: #0f3460; flex-shrink: 0; margin: 0 2px; }
+#weName { font-size: 13.5px; color: #e0e0e0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+#toolbar button.primary { background: linear-gradient(135deg, #533483, #a855f7); border-color: transparent; color: #fff; }
+#toolbar button.primary:hover { opacity: 0.88; background: linear-gradient(135deg, #533483, #a855f7); }
+#toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+#toolbar button.helpBtn { border-color: #533483; color: #d9c9ff; }
+#toolbar button.helpBtn:hover { background: #533483; color: #fff; }
+
+/* 模式切换：一个连体按钮组 */
+.modeSwitch { display: inline-flex; flex-shrink: 0; }
+.modeSwitch button {
+  border-radius: 0; border-left-width: 0; margin: 0;
+  padding: 7px 14px; font-size: 13px;
+}
+.modeSwitch button:first-child { border-radius: 6px 0 0 6px; border-left-width: 1px; }
+.modeSwitch button:last-child { border-radius: 0 6px 6px 0; }
+.modeSwitch button.on { background: #533483; border-color: #533483; color: #fff; }
+
+/* 时长 / 模式小控件 */
+.tbField { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #8899aa; flex-shrink: 0; }
+.tbField input[type=number] {
+  width: 68px; padding: 4px 7px; font-size: 12.5px; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 4px; background: #1a1a2e; color: #e0e0e0;
+}
+.tbField select {
+  padding: 4px 6px; font-size: 12.5px; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 4px; background: #1a1a2e; color: #e0e0e0;
+}
+.tbField input:disabled, .tbField select:disabled { opacity: 0.45; }
+
+/* 撤销/重做图标按钮 */
+#toolbar button.iconBtn {
+  padding: 6px 10px; font-size: 16px; line-height: 1; min-width: 34px;
+}
+#toolbar button.iconBtn:disabled { opacity: 0.3; }
+
+/* 状态栏视图读数 */
+.sbView { color: #8899aa; font-size: 11.5px; }
+
+/* ---------- 波形库抽屉（复用 wc.css 的 #sidebar 基础规则，这里只补编辑器差异） ---------- */
+#sidebar { z-index: 30; }
+#backdrop.open { display: block; }
+
+/* ---------- 绘图区：canvas 与 SVG 覆盖层完全叠合 ---------- */
+/* ============================================================
+   绘图区布局（视图固定为「整周期 × ±127 全幅」，无缩放、无滚动条）
+     ┌────────┬─────────────────────┐
+     │ 幅度轴 │  绘图区（canvas+SVG）│
+     ├────────┼─────────────────────┤
+     │        │  时间标尺           │
+     └────────┴─────────────────────┘
+   幅度轴与时间标尺的刻度文字用 DOM 渲染（比在 canvas 里量文字更稳），
+   位置由 view.js 在 resize 时按 grid 换算后写入。
+   ============================================================ */
+#plot {
+  position: relative; flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 26px;
+  background: #0d1424;
+  overflow: hidden;
+  user-select: none;
+}
+#canvasWrap {
+  grid-column: 2; grid-row: 1;
+  position: relative; min-width: 0; min-height: 0; overflow: hidden;
+}
+#axLeft {
+  grid-column: 1; grid-row: 1;
+  position: relative; overflow: hidden;
+  background: #101828; border-right: 1px solid #0f3460;
+}
+#axBottom {
+  grid-column: 2; grid-row: 2;
+  position: relative; overflow: hidden;
+  background: #101828; border-top: 1px solid #0f3460;
+}
+/* 轴刻度文字 */
+.axTickA {
+  position: absolute; right: 6px; transform: translateY(-50%);
+  font-size: 10.5px; color: #6b7a8f; white-space: nowrap; pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.axTickA.zero { color: #e0e0e0; font-weight: 700; }
+.axTickA.limit { color: #8fa3bb; }
+.axTickT {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  font-size: 10.5px; color: #9fb0c4; white-space: nowrap; pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+/* 标尺上的 0 / 循环终点 标记 */
+.axMark {
+  position: absolute; top: 0; width: 0; height: 0; pointer-events: none;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+}
+.axMark.start { border-top: 7px solid rgba(167,139,250,0.9); transform: translateX(-4px); }
+.axMark.end { border-top: 7px solid rgba(251,191,36,0.9); transform: translateX(-4px); }
+/* 标尺两端兼作缩放/平移把手已取消（视图固定），但保留拖动平移的鼠标提示 */
+#axBottom { cursor: default; }
+#cv { position: absolute; inset: 0; display: block; width: 100%; height: 100%; cursor: crosshair; }
+#ov {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; overflow: visible;
+}
+
+/* overlay 元素 */
+#ov .cursor { stroke: rgba(224,224,224,0.28); stroke-width: 1; stroke-dasharray: 3 3; }
+#ov .snapLine { stroke: #fbbf24; stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.9; }
+#ov .rubber { stroke: #a78bfa; stroke-width: 1.5; stroke-dasharray: 5 4; }
+#ov circle.pt { fill: currentColor; stroke: #0d1424; stroke-width: 1.5; cursor: pointer; }
+#ov circle.pt.sel { stroke: #fff; stroke-width: 2.5; }
+#ov circle.pt.bDot { fill: #0d1424; }
+
+/* ---------- （已撤）坐标轴刻度与轴缩放按钮 ----------
+   按用户要求暂时删除：刻度、网格线、轴旁 [＋][－][适应] 按钮都不再渲染。
+   相关样式保留在此注释里备查，等轴线方案定稿后再恢复：
+   .axisCtl / .ampCtl / .timeCtl / .axLabel
+   删除原因：轴线方案需要重做，先撤掉避免半成品干扰判断。
+   #plot 的 grid 也相应从「56px | 1fr」改回单列铺满。 */
+
+/* ---------- （已撤）滚动条 ----------
+   视图固定为整周期 × ±127 全幅，没有可滚动余量，所以横向/纵向滚动条都已删除。 */
+
+/* ---------- 空状态 ---------- */
+.empty {
+  position: absolute; inset: 0; z-index: 8;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(13,20,36,0.92); color: #8899aa; font-size: 14px; text-align: center;
+  padding: 20px;
+}
+.empty p { margin: 0; }
+.empty .hint { font-size: 12.5px; color: #6b7a8f; }
+.empty b { color: #a78bfa; }
+
+/* ---------- JSON 编辑器 ---------- */
+.jsonBar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; border-bottom: 1px solid #0f3460; background: #16213e;
+}
+.jsonBar .axLabel { font-size: 12px; color: #8899aa; }
+.jsonBar button {
+  padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 4px; background: #1a1a2e; color: #e0e0e0;
+}
+.jsonBar button:hover { background: #0f3460; }
+.jsonBar button.primary { background: linear-gradient(135deg, #533483, #a855f7); border: none; color: #fff; }
+.jsonState { font-size: 12px; margin-left: auto; }
+.jsonState.ok { color: #3ddc97; }
+.jsonState.err { color: #ff6b6b; }
+
+#jsonText {
+  flex: 1; min-height: 0; width: 100%; resize: none; outline: none;
+  padding: 12px 14px; border: none; background: #0d1424; color: #cfcfe6;
+  font-family: Consolas, "Courier New", monospace; font-size: 12.5px; line-height: 1.65;
+  tab-size: 2; white-space: pre; overflow: auto;
+}
+#jsonText:disabled { color: #6b7a8f; background: #101828; }
+.jsonErr {
+  max-height: 96px; overflow-y: auto; padding: 0 14px;
+  font-size: 12px; line-height: 1.7; color: #ff6b6b; white-space: pre-wrap;
+}
+.jsonErr:not(:empty) { padding: 8px 14px; border-top: 1px solid #6b3030; background: #2a1a1a; }
+
+/* ---------- 状态栏 ---------- */
+#statusBar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 12px;
+  padding-bottom: calc(7px + env(safe-area-inset-bottom));
+  background: #16213e; border-top: 1px solid #0f3460; flex-shrink: 0;
+  font-size: 12.5px; color: #c0c0c0;
+}
+#statusBar .sep { color: #0f3460; }
+.sbGroup { display: inline-flex; align-items: center; gap: 5px; }
+.sbLabel { color: #8899aa; }
+.sbRight { margin-left: auto; gap: 14px; }
+#statusBar input[type=number] {
+  width: 74px; padding: 4px 7px; font-size: 12.5px; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 4px; background: #1a1a2e; color: #e0e0e0;
+}
+#statusBar input[type=number]:focus { outline: none; border-color: #533483; }
+#statusBar button {
+  padding: 4px 10px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 4px; background: #1a1a2e; color: #e0e0e0;
+}
+#statusBar button:hover { background: #0f3460; }
+#statusBar button.on { background: #533483; border-color: #533483; color: #fff; }
+.sbChk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.sbChk input { accent-color: #a855f7; }
+.sbChk .dot { width: 7px; height: 7px; border-radius: 50%; background: #fbbf24; display: inline-block; }
+.sbSnap { color: #fbbf24; min-width: 96px; }
+.sbPos { color: #8899aa; min-width: 132px; }
+.sbMeta { color: #8899aa; }
+
+/* ---------- 弹窗骨架 ----------
+   注意：首页 index.html 自带了 .ovl/.mbox/.mhead/.mbody/.mcontent 的内联样式，
+   编辑器页面没有引那些，所以这里必须自己定义一份，否则弹窗会是"没有边框、
+   没有背景、内容溢出不可滚"的空壳。 */
+#confirmModal, #helpModal, #inputModal, #infoModal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 60;
+  display: none; align-items: center; justify-content: center; padding: 16px;
+}
+#confirmModal.open, #helpModal.open, #inputModal.open, #infoModal.open { display: flex; }
+#confirmModal { z-index: 62; }
+#inputModal { z-index: 62; }
+#infoModal { z-index: 62; }
+#infoBody { font-size: 13.5px; line-height: 1.8; color: #c0c0c0; }
+#infoBody .kv { margin: 4px 0; }
+#infoBody b { color: #e0e0e0; }
+#infoBody .ok { color: #3ddc97; }
+#infoBody .warnText { color: #fbbf24; }
+
+/* ---------- 新建波形：表单 ---------- */
+.fieldRow {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+}
+.fieldRow > label { flex: 0 0 84px; font-size: 13px; color: #8899aa; text-align: right; }
+.fieldRow input[type=text], .fieldRow input[type=number], .fieldRow select {
+  flex: 1; min-width: 0; padding: 7px 10px; font-size: 13.5px; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 5px; background: #1a1a2e; color: #e0e0e0;
+}
+.fieldRow input:focus, .fieldRow select:focus { outline: none; border-color: #533483; }
+.fieldUnit { flex: 1; display: inline-flex; align-items: center; gap: 8px; color: #8899aa; font-size: 13px; }
+.fieldUnit input { flex: 0 0 110px; }
+.fieldHint { font-size: 12px; color: #6b7a8f; line-height: 1.7; margin: 2px 0 10px; }
+.fieldHint code { background: #101828; padding: 1px 5px; border-radius: 3px; color: #a78bfa; }
+.inputErr { font-size: 12.5px; color: #ff6b6b; min-height: 18px; line-height: 1.6; }
+
+.mbox {
+  background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+  width: 100%; max-height: 88vh; max-height: 88dvh;
+  display: flex; flex-direction: column; text-align: left; overflow: hidden;
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.65);
+}
+.mhead {
+  display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+  padding: 12px 16px; border-bottom: 1px solid #0f3460; font-size: 15px; color: #e0e0e0;
+  background: #16213e;
+}
+.mhead button {
+  padding: 4px 10px; font-size: 12px; line-height: 1.4; font-family: inherit;
+  background: #1a1a2e; border: 1px solid #0f3460; border-radius: 4px;
+  color: #e0e0e0; cursor: pointer;
+}
+.mhead button:hover { background: #0f3460; }
+
+/* 正文：必须能滚动，否则长说明直接被裁掉 */
+.mcontent {
+  padding: 16px; overflow-y: auto; font-size: 13px; line-height: 1.75; color: #c0c0c0;
+  -webkit-overflow-scrolling: touch;
+}
+.mcontent h4 { margin: 16px 0 6px; color: #a78bfa; font-size: 13.5px; }
+.mcontent h4:first-child { margin-top: 0; }
+.mcontent p { margin: 4px 0 6px; }
+.mcontent ul { margin: 4px 0 6px; padding-left: 20px; }
+.mcontent li { margin: 3px 0; }
+.mcontent code { background: #101828; padding: 1px 5px; border-radius: 3px; color: #a78bfa; font-size: 12px; }
+.mcontent b { color: #e0e0e0; }
+
+.mbox.small { max-width: 440px; }
+.mbody {
+  padding: 16px; overflow-y: auto; color: #c0c0c0; font-size: 13.5px; line-height: 1.8;
+}
+.mfoot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+.mbody button, .mcontent button {
+  padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 4px; background: #1a1a2e; color: #e0e0e0;
+}
+.mbody button:hover, .mcontent button:hover { background: #0f3460; }
+.mbody button.primary, .mcontent button.primary {
+  background: linear-gradient(135deg, #533483, #a855f7); border: none; color: #fff;
+}
+.mbody button.danger, .mcontent button.danger { border-color: #6b3030; color: #fca5a5; }
+.mbody button.danger:hover, .mcontent button.danger:hover { background: #6b3030; color: #fff; }
+#helpModal .mbox { max-width: 680px; }
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 720px) {
+  #weName { max-width: 120px; }
+  .sbRight { width: 100%; margin-left: 0; }
+  .sbPos { min-width: 0; }
+}
+@media (max-height: 520px) {
+  #statusBar { padding: 4px 10px; }
+}

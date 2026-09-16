@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>WaveControler v2.0 Beta</title>
+<title>WaveControler v1.1 Beta</title>
 <link rel="stylesheet" href="./style.css">
 <link rel="stylesheet" href="wc.css">
 </head>
@@ -14,15 +14,8 @@
   <span id="bleLabel" class="badge off">未连接</span>
   <button id="btnRun" onclick="WC.ui.toggleRun()">▶ 开始</button>
   <button id="btnStop" class="danger" onclick="WC.ui.requestStop()" title="防误触：连点两次才会立即归零">⏹ 急停(双击)</button>
-  <button id="btnIo" onclick="WC.ui.openIo('import')">📥 导入 / 导出 / 管理</button>
-  <button id="btnEditor" onclick="window.open('WaveEditor.html', '_blank')" title="打开波形编辑器（新标签页）">✏️ 波形编辑器</button>
+  <button id="btnIo" onclick="WC.ui.openIo('import')">📥 导入 / 导出</button>
   <a class="gh-link gh-in-toolbar" href="https://github.com/Mistpeach/Web-UFO-Player" target="_blank" rel="noopener" title="GitHub 仓库（新标签页打开）" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a>
-</div>
-
-<!-- 保持前台运行提示条：切后台浏览器会把发包降速到约 1 次/秒，点问号看说明 -->
-<div id="fgBar">
-  <span id="fgBarLabel"><span class="dot"></span>保持前台运行</span>
-  <button id="fgBarHelp" onclick="WC.ui.openTip()" title="为什么？（点开看说明）" aria-label="查看说明">?</button>
 </div>
 
 <div id="layout">
@@ -66,21 +59,6 @@
     </div>
     <div id="ioTabs"></div>
     <div id="ioBody"></div>
-  </div>
-</div>
-
-<!-- 保持前台运行 · 说明弹窗 -->
-<div id="fgTipModal" role="dialog" aria-modal="true" aria-labelledby="fgTipTitle" onclick="if(event.target===this)WC.ui.closeTip()">
-  <div id="fgTipBox">
-    <div id="fgTipHead">
-      <span id="fgTipTitle">⏱ 保持前台运行</span>
-      <button id="fgTipClose" onclick="WC.ui.closeTip()" title="关闭（Esc）">✕ 关闭</button>
-    </div>
-    <div id="fgTipBody">
-      <p>为保证使用体验，请保持页面处于<b>前台运行</b>。</p>
-      <p>页面切到后台或最小化时，浏览器会把后台页面的定时器降频，蓝牙发包速度会从 <b>20 次/秒</b> 降到 <b>约 1 次/秒</b>（Chromium 强制规定 <code>1s/次</code>），动作会变得一顿一顿。</p>
-      <p>波形周期越短越明显；回到前台会立刻恢复正常速度。</p>
-    </div>
   </div>
 </div>
 
@@ -131,32 +109,6 @@
 </div>
 
 <input type="file" id="fileInput" multiple accept=".json,.csv,.txt,.wave" style="display:none" onchange="WC.ui.onFiles(this)">
-
-<!-- 统一确认 / 输入弹窗（删除、重命名、改时长都用它，替代浏览器原生 confirm/prompt） -->
-<div id="askModal" role="dialog" aria-modal="true" onclick="if(event.target===this)WC.ui.askCancel()">
-  <div id="askBox">
-    <div id="askHead"><span id="askTitle">请确认</span></div>
-    <div id="askBody">
-      <div id="askText"></div>
-      <div id="askField" style="display:none">
-        <input id="askInput" type="text" onkeydown="if(event.key==='Enter')WC.ui.askOk()">
-      </div>
-      <div id="askFoot">
-        <button id="askOk" class="primary" onclick="WC.ui.askOk()">确定</button>
-        <button onclick="WC.ui.askCancel()">取消</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- 统一结果提示弹窗（导入/导出/重命名/改时长等操作结果） -->
-<div id="infoModal" role="dialog" aria-modal="true" onclick="if(event.target===this)WC.ui.closeInfo()">
-  <div id="infoBox">
-    <div id="infoHead"><span id="infoTitle">提示</span></div>
-    <div id="infoBody"></div>
-    <div id="infoFoot"><button class="primary" onclick="WC.ui.closeInfo()">知道了</button></div>
-  </div>
-</div>
 
 <script src="presets.js"></script>
 <script src="js/format.js"></script>

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>WaveControler v2.0 Beta-Editor</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="wc.css">
+<link rel="stylesheet" href="we.css">
+</head>
+<body class="editorBody">
+
+<div id="toolbar">
+  <button id="btnLib" onclick="WE.ui.toggleLib()">☰ 波形库</button>
+  <button id="btnNew" onclick="WE.ui.newBlank()">＋ 新建空白波形</button>
+  <button id="btnUndo" class="iconBtn" onclick="WE.ui.undo()" title="撤销（Ctrl+Z）" disabled>↶</button>
+  <button id="btnRedo" class="iconBtn" onclick="WE.ui.redo()" title="重做（Ctrl+Y）" disabled>↷</button>
+  <span class="tbSep"></span>
+  <span id="weName">未打开波形</span>
+  <span id="weBadge" class="badge off">—</span>
+  <button id="btnSave" class="primary" onclick="WE.ui.save()" disabled>💾 保存</button>
+  <button id="btnCopy" onclick="WE.ui.saveAsCopy()" disabled>另存副本</button>
+  <button id="btnDel" class="danger" onclick="WE.ui.del()" disabled>🗑 删除</button>
+  <span class="tbSep"></span>
+  <span class="modeSwitch">
+    <button id="modeGfx" class="on" onclick="WE.ui.setMode('gfx')">图形化</button>
+    <button id="modeJson" onclick="WE.ui.setMode('json')">JSON</button>
+  </span>
+  <span class="tbSep"></span>
+  <label class="tbField" title="循环周期（秒）：从最后一个断点保持到这里，然后回绕到开头">
+    循环时长 <input id="weDur" type="number" min="0.05" step="0.05" disabled onchange="WE.ui.onDurChange()"> s
+  </label>
+  <label class="tbField" title="hold=阶梯保持（与旧脚本语义一致）／linear=线性插值（更顺滑）">
+    模式
+    <select id="weMode" disabled onchange="WE.ui.onModeChange()">
+      <option value="hold">阶梯 hold</option>
+      <option value="linear">线性 linear</option>
+    </select>
+  </label>
+  <button id="btnHelp" class="helpBtn" onclick="WE.ui.openHelp()" title="使用说明 / 快捷键">❓ 使用说明</button>
+  <a class="gh-link gh-in-toolbar" href="https://github.com/Mistpeach/Web-UFO-Player" target="_blank" rel="noopener" title="GitHub 仓库（新标签页打开）" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a>
+</div>
+
+<div id="body">
+
+  <div id="backdrop" onclick="WE.ui.closeLib()"></div>
+
+  <aside id="sidebar" aria-hidden="true">
+    <div id="libHeader">
+      <span id="libTitle">📚 波形库<span id="libCount"></span></span>
+      <button id="libClose" onclick="WE.ui.closeLib()" title="关闭波形库（Esc）">✕ 关闭</button>
+    </div>
+    <input id="libSearch" type="search" placeholder="搜索波形名…" oninput="WE.ui.renderLib()">
+    <div id="libList"></div>
+    <div id="libFoot">👆 点击波形即载入编辑区</div>
+  </aside>
+
+  <main id="main">
+
+    <!-- 图形化编辑器 -->
+    <section id="paneGfx" class="pane on">
+      <div id="plot" oncontextmenu="return false;">
+
+        <!-- 绘图区：左栏 = 幅度轴标签，主区 = canvas + SVG 覆盖层，底部 = 时间标尺
+             视图固定为「整周期 × ±127 全幅」，所以不需要滚动条 -->
+        <div id="axLeft" class="axCol"></div>
+        <div id="canvasWrap">
+          <canvas id="cv"></canvas>
+          <svg id="ov" xmlns="http://www.w3.org/2000/svg">
+            <g id="ovA"></g>
+            <g id="ovB"></g>
+            <line id="ovCursor" class="cursor" x1="0" y1="0" x2="0" y2="0"></line>
+            <line id="ovSnapH" class="snapLine" x1="0" y1="0" x2="0" y2="0"></line>
+            <line id="ovSnapV" class="snapLine" x1="0" y1="0" x2="0" y2="0"></line>
+            <g id="ovRubber"></g>
+          </svg>
+        </div>
+        <div id="axBottom" class="axRow"></div>
+
+        <!-- 空状态提示 -->
+        <div id="gfxEmpty" class="empty">
+          <p>没有打开任何波形</p>
+          <p class="hint">从左上角 <b>☰ 波形库</b> 选一个，或点 <b>＋ 新建空白波形</b></p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- JSON 编辑器 -->
+    <section id="paneJson" class="pane">
+      <div class="jsonBar">
+        <span class="axLabel">JSON 源码</span>
+        <button onclick="WE.json.format()">格式化</button>
+        <button onclick="WE.json.compact()">压缩</button>
+        <button class="primary" onclick="WE.json.apply()">应用到图形化</button>
+        <span id="jsonState" class="jsonState"></span>
+      </div>
+      <textarea id="jsonText" spellcheck="false" placeholder="请选择或新建一个波形…"></textarea>
+      <div id="jsonErr" class="jsonErr"></div>
+    </section>
+
+  </main>
+</div>
+
+<div id="statusBar">
+  <span class="sbGroup">
+    <span class="sbLabel">坐标输入</span>
+    时间 <input id="inTime" type="number" step="0.05" min="0" placeholder="秒">
+    幅度 <input id="inAmp" type="number" step="1" min="-127" max="127" placeholder="-127~127">
+    <button onclick="WE.ui.doCoord()" title="在该坐标精确放置一个断点（回车亦可）">落点</button>
+  </span>
+  <span class="sep">·</span>
+  <span class="sbGroup">
+    <label class="sbChk"><input type="checkbox" id="chkSnap" checked onchange="WE.ui.onSnapChk()"> <span class="dot"></span>吸附</label>
+  </span>
+  <span class="sep">·</span>
+  <span class="sbGroup">
+    工具：
+    <button id="toolFree" class="on" onclick="WE.ui.setTool('free')">自由绘制</button>
+    <button id="toolTwo" onclick="WE.ui.setTool('two')">两点式折线</button>
+  </span>
+  <span class="sbGroup sbRight">
+    <span id="sbSnap" class="sbSnap"></span>
+    <span id="sbPos" class="sbPos"></span>
+  </span>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<!-- 统一确认弹窗（覆盖 / 删除 / 放弃未保存修改 都用它，不再用浏览器原生 confirm） -->
+<div id="confirmModal" onclick="if(event.target===this)WE.ui.cancelConfirm()">
+  <div class="mbox small">
+    <div class="mhead"><span id="confirmTitle">⚠ 确认</span><button onclick="WE.ui.cancelConfirm()" title="取消">✕ 关闭</button></div>
+    <div class="mbody">
+      <p id="confirmText"></p>
+      <div class="mfoot">
+        <button id="confirmOk" class="primary" onclick="WE.ui.doConfirm()">确定</button>
+        <button onclick="WE.ui.cancelConfirm()">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 新建波形：让用户先填名称 / 时长 / 模式，而不是直接生成一个"未命名波形" -->
+<div id="inputModal" onclick="if(event.target===this)WE.ui.cancelInput()">
+  <div class="mbox small">
+    <div class="mhead"><span id="inputTitle">＋ 新建波形</span><button onclick="WE.ui.cancelInput()" title="取消">✕ 关闭</button></div>
+    <div class="mbody">
+      <div class="fieldRow">
+        <label for="inName">波形名称</label>
+        <input id="inName" type="text" maxlength="40" placeholder="给波形起个名字">
+      </div>
+      <div class="fieldRow">
+        <label for="inDur">循环时长</label>
+        <span class="fieldUnit"><input id="inDur" type="number" min="0.05" step="0.05" value="1"> 秒</span>
+      </div>
+      <div class="fieldRow">
+        <label for="inMode">插值模式</label>
+        <select id="inMode">
+          <option value="hold">阶梯 hold（与旧 CSV 脚本语义一致）</option>
+          <option value="linear">线性 linear（更顺滑）</option>
+        </select>
+      </div>
+      <p class="fieldHint">循环时长 = 一个循环周期。建好后 A / B 两条通道都只有一个 <code>[0, 0]</code> 断点，直接开始画即可。</p>
+      <div id="inputErr" class="inputErr"></div>
+      <div class="mfoot">
+        <button class="primary" onclick="WE.ui.doInput()">创建并开始编辑</button>
+        <button onclick="WE.ui.cancelInput()">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 操作结果提示弹窗（保存 / 另存副本等） -->
+<div id="infoModal" role="dialog" aria-modal="true" onclick="if(event.target===this)WE.ui.closeInfo()">
+  <div class="mbox small">
+    <div class="mhead"><span id="infoTitle">提示</span><button onclick="WE.ui.closeInfo()" title="关闭（Esc）">✕ 关闭</button></div>
+    <div class="mbody">
+      <div id="infoBody"></div>
+      <div class="mfoot">
+        <button class="primary" onclick="WE.ui.closeInfo()">知道了</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 使用说明 -->
+<div id="helpModal" onclick="if(event.target===this)WE.ui.closeHelp()">
+  <div class="mbox">
+    <div class="mhead"><span>❓ 波形编辑器 · 使用说明</span><button onclick="WE.ui.closeHelp()" title="关闭（Esc）">✕ 关闭</button></div>
+    <div class="mcontent">
+      <h4>这个页面是做什么的</h4>
+      <p>编辑「波形」—— 几秒到几十秒的<b>循环动作模板</b>。保存后回到控制器页面，A / B 通道就能选到它。<br>
+      一个波形内部同时含 <b>A、B 两条通道曲线</b>，两条曲线同屏显示：<b>A 实线、B 虚线</b>。</p>
+
+      <h4>三种打开方式</h4>
+      <ul>
+        <li><b>☰ 波形库</b>：读取内置示例 + 你自己的波形。若编辑区已有打开的文件，会先弹窗确认覆盖。</li>
+        <li><b>＋ 新建空白波形</b>：先填<b>名称 / 循环时长 / 插值模式</b>，确认后生成一个空波形开始画。</li>
+        <li><b>内置示例是只读的</b>：可以看、可以照着画，但不能改；想改请用「另存副本」。</li>
+      </ul>
+
+      <h4>视图操作</h4>
+      <ul>
+        <li>视图<b>固定为「整个循环周期 × ±127 全幅」</b>，不做缩放与平移，画多少就看多少</li>
+        <li>左侧竖轴是<b>幅度</b>：<code>+125 ~ -125</code>，每 25 一格，<b>0 在正中间</b>（上半 = 正转，下半 = 反转）</li>
+        <li>底部横轴是<b>时间</b>，刻度按周期自动取整；两端有 <b>0</b>（紫）与<b>循环终点</b>（黄）标记</li>
+        <li>鼠标在画布上移动时，状态栏会实时显示当前<b>时间与幅度</b></li>
+      </ul>
+
+      <h4>画波形</h4>
+      <ul>
+        <li><b>自由绘制</b>：按住左键在画布上拖，按 <b>50ms 时间步</b>自动落点（与控制器 20Hz 发包率一致）</li>
+        <li><b>两点式折线</b>：点起点 → 点终点，直接连一条直线</li>
+        <li><b>坐标输入</b>：状态栏「时间 / 幅度」输入框 + <b>回车</b>（或点「落点」），把断点精确放到指定坐标 —— 鼠标怕点歪就用这个</li>
+        <li><b>点击断点</b>选中，<b>拖动</b>移动，<b>Delete</b> 删除</li>
+        <li><b>Shift + 点击</b>曲线：在该时间点插入一个断点</li>
+        <li><b>Ctrl+Z / Ctrl+Y</b>（或工具栏 ↶ ↷）：撤销 / 重做</li>
+        <li><b>Esc</b>：取消当前的绘制（如取消两点式的起点）</li>
+      </ul>
+
+      <h4>A / B 两条通道</h4>
+      <p>一个波形内部同时含 <b>A、B 两条通道曲线</b>，同屏显示：<b>A 实线、B 虚线</b>。<br>
+      新画的点落在哪条通道，由你<b>点选哪个断点</b>决定（点了 A 的点就继续编辑 A）；<b>不需要手动切换通道</b>。</p>
+
+      <h4>自动吸附</h4>
+      <p>鼠标靠近这些位置时会自动吸附（阈值 6 像素）：<b>幅度 0 中线</b>、<b>幅度 ±127 上下限</b>、
+      <b>网格上的每一条幅度刻度</b>、<b>时间 0</b>、<b>循环终点</b>、<b>网格上的每一条时间刻度</b>、<b>已有断点</b>。<br>
+      命中时状态栏会提示，画布上会出现黄色参考线。不想要吸附就取消状态栏的「吸附」勾选。</p>
+
+      <h4>阶梯（hold）与线性（linear）</h4>
+      <ul>
+        <li><b>hold</b>：断点之间保持前一个值（阶梯），和旧 CSV 脚本语义一致</li>
+        <li><b>linear</b>：断点之间线性插值（更顺滑）</li>
+        <li>在顶栏的「模式」下拉里切换，也可以在 JSON 模式改 <code>mode</code> 字段</li>
+      </ul>
+
+      <h4>JSON 模式</h4>
+      <p>两种模式<b>编辑的是同一份数据</b>，会实时同步。JSON 写法有误时下方会报错，并且<b>不会</b>覆盖图形化内容，改对后自动生效。<br>
+      <code>duration</code> 是循环周期（秒）；每个断点是 <code>[时间, 幅度]</code>，幅度范围 <b>-127 ~ 127</b>，<b>负值 = 反转</b>。</p>
+
+      <h4>保存与同步</h4>
+      <ul>
+        <li><b>💾 保存</b>：写回浏览器本地数据，控制器的波形库会<b>自动同步</b>（同源标签页间用 storage 事件通知）</li>
+        <li>若控制器页面没反应，<b>回到控制器页面刷新一下</b>即可</li>
+        <li><b>另存副本</b>：生成一个新 id、名字加「（副本）」，不动原件</li>
+        <li>数据存在浏览器本地，清缓存会丢 —— 请用控制器页面的「导入 / 导出 / 管理」定期备份</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script src="presets.js"></script>
+<script src="js/format.js"></script>
+<script src="js/store.js"></script>
+<script src="we/util.js"></script>
+<script src="we/grid.js"></script>
+<script src="we/view.js"></script>
+<script src="we/snap.js"></script>
+<script src="we/draw.js"></script>
+<script src="we/editor.js"></script>
+<script src="we/json.js"></script>
+<script src="we/data.js"></script>
+<script src="we/ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Web Bluetooth 环境自检</title>
+<style>
+  body { background:#0f1729; color:#e0e0e0; font-family:system-ui,"Microsoft YaHei",sans-serif;
+         max-width:760px; margin:0 auto; padding:28px 20px 60px; line-height:1.7; }
+  h1 { font-size:1.5rem; color:#a78bfa; }
+  .row { display:flex; gap:12px; align-items:baseline; padding:9px 12px; border-radius:6px;
+         background:#16213e; border:1px solid #0f3460; margin-bottom:8px; }
+  .k { flex:0 0 210px; color:#8899aa; font-size:13px; }
+  .v { font-family:Consolas,monospace; font-size:14px; word-break:break-all; }
+  .ok { color:#3ddc97; } .no { color:#ff6b6b; } .warn { color:#fbbf24; }
+  button { margin-top:14px; padding:12px 26px; font-size:15px; border-radius:6px; border:none;
+           background:linear-gradient(135deg,#533483,#a855f7); color:#fff; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  #log { margin-top:16px; padding:12px; background:#0d1424; border:1px solid #0f3460;
+         border-radius:6px; font-family:Consolas,monospace; font-size:13px; white-space:pre-wrap;
+         min-height:70px; color:#c0c0c0; }
+  .note { margin-top:22px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+          border-radius:4px; font-size:13px; color:#aaa; }
+  code { background:#1a1a2e; padding:1px 5px; border-radius:3px; color:#a78bfa; }
+</style>
+</head>
+<body>
+<h1>Web Bluetooth 环境自检</h1>
+<p style="color:#888;font-size:14px;">把本文件放在任意位置，用 Chrome / Edge 双击打开即可。它只读环境信息，不会真的连设备 —— 除非你点最后的按钮。</p>
+
+<div id="out"></div>
+
+<button id="btn" disabled>点这里真的发起一次蓝牙搜索（会弹设备选择框）</button>
+<div id="log">等待点按钮…</div>
+
+<div class="note">
+  <b>怎么看结果：</b><br>
+  · <code>isSecureContext</code> 为 <b>true</b> 且 <code>navigator.bluetooth</code> 存在 → 当前打开方式<b>可以用蓝牙</b>（不管是 file:// 还是 http://）<br>
+  · 点按钮后弹出设备选择框 → 完全可用，本项目直接双击就能跑<br>
+  · 点按钮后报安全上下文错误 → 需要改用 <code>http://127.0.0.1</code> 方式打开
+</div>
+
+<script>
+(function () {
+  var out = document.getElementById('out');
+  var log = document.getElementById('log');
+  var btn = document.getElementById('btn');
+
+  function say(msg) { log.textContent += '\n' + msg; }
+  function row(k, v, cls) {
+    var d = document.createElement('div');
+    d.className = 'row';
+    d.innerHTML = '<span class="k"></span><span class="v ' + (cls || '') + '"></span>';
+    d.querySelector('.k').textContent = k;
+    d.querySelector('.v').textContent = v;
+    out.appendChild(d);
+  }
+
+  var proto = location.protocol;
+  var isFile = proto === 'file:';
+  var secure = window.isSecureContext === true;
+  var hasBT = !!navigator.bluetooth;
+
+  row('页面地址（protocol）', proto + '  ' + (isFile ? '（本地文件）' : ''), isFile ? 'warn' : '');
+  row('完整 URL', location.href);
+  row('window.isSecureContext', String(secure), secure ? 'ok' : 'no');
+  row('navigator.bluetooth 存在', String(hasBT), hasBT ? 'ok' : 'no');
+  row('navigator.bluetooth.getAvailability', typeof (navigator.bluetooth && navigator.bluetooth.getAvailability));
+  row('浏览器 UA', navigator.userAgent);
+
+  // getAvailability 是能力探测，不弹框、不需要设备
+  if (navigator.bluetooth && navigator.bluetooth.getAvailability) {
+    navigator.bluetooth.getAvailability().then(function (ok) {
+      row('蓝牙适配器可用 (getAvailability)', String(ok), ok ? 'ok' : 'no');
+    }).catch(function (e) {
+      row('蓝牙适配器可用 (getAvailability)', '失败: ' + (e && e.message || e), 'no');
+    });
+  }
+
+  if (hasBT) {
+    btn.disabled = false;
+    say(secure
+      ? '环境看起来可用，点上面的按钮做最终确认。'
+      : '注意：isSecureContext 为 false，点按钮大概率会被拒绝。');
+  } else {
+    say('当前环境没有 navigator.bluetooth —— 说明这个宿主不支持 Web Bluetooth，'
+      + '跟 file:// 无关。换 Chrome / Edge 打开，或用 http://127.0.0.1 方式。');
+  }
+
+  btn.onclick = function () {
+    btn.disabled = true;
+    say('\n--- 发起 requestDevice({filters:[{namePrefix:""}]}) ---');
+    navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: ['40ee0200-63ec-4b7f-8ce7-712efd55b90e']
+    }).then(function (dev) {
+      say('成功！选中设备: ' + (dev.name || '(无名)') + '  id=' + dev.id);
+      say('结论：当前打开方式完全可用，不需要本地服务器。');
+    }).catch(function (e) {
+      say('失败: ' + (e && e.name) + ' — ' + (e && e.message || e));
+      if (e && e.name === 'SecurityError') {
+        say('→ 安全上下文被拒绝，需要 https 或 http://localhost 打开。');
+      } else if (e && e.name === 'NotFoundError') {
+        say('→ 你取消了选择框，或者附近没有设备。这说明 API 本身是可用的（能走到弹框这一步就算通过）。');
+      } else if (e && e.name === 'NotSupportedError') {
+        say('→ 这个宿主没有蓝牙能力。');
+      }
+    });
+  };
+})();
+</script>
+</body>
+</html>
