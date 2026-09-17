@@ -1,0 +1,102 @@
+# ============================================================
+# nginx.conf.example - UFO 远程控制中继的 Nginx 反向代理示例
+#
+# 用法（宝塔用户请在「网站 → 设置 → 反向代理 → 配置文件」里对照修改）：
+#   sudo cp nginx.conf.example /etc/nginx/sites-available/ufo-remote
+#   sudo ln -s /etc/nginx/sites-available/ufo-remote /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# ⚠️ 最关键的两行是 Upgrade / Connection：
+#    漏了它们，WebSocket 握手会失败（浏览器报连接失败，服务器日志里看不到任何连接）。
+#    这是 Nginx 反代 WebSocket 最经典的坑。
+# ============================================================
+
+# WebSocket 需要用 Connection 头的值做 map，否则无法正确透传
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+upstream ufo_remote {
+    server 127.0.0.1:8787;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ufo.你的域名.com;
+
+    # 如果证书由 certbot 管理，它会把 80 的跳转规则自动加进来。
+    # 手工配置时保持下面这行即可（首次申请证书前先注释掉）。
+    # return 301 https://$host$request_uri;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ufo.你的域名.com;
+
+    # ---------- 证书（宝塔用户由面板自动填这三行） ----------
+    ssl_certificate     /etc/letsencrypt/live/ufo.你的域名.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ufo.你的域名.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # ---------- 安全响应头 ----------
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+    server_tokens off;
+
+    # ---------- WebSocket 中继（核心） ----------
+    location /ws {
+        proxy_pass http://ufo_remote;
+        proxy_http_version 1.1;
+
+        # ★ 这两行是 WebSocket 能不能通的关键
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        # 传递真实客户端 IP（配合 config.json 的 server.trustProxy = true）
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket 是长连接，超时不能太短。
+        # 客户端业务心跳是 2 秒一次，服务器空闲超时 30 秒，这里给足余量。
+        proxy_read_timeout  3600s;
+        proxy_send_timeout  3600s;
+        proxy_connect_timeout 10s;
+
+        # 关闭缓冲：转发要尽量即时，别攒着
+        proxy_buffering off;
+    }
+
+    # ---------- 健康检查 ----------
+    location /health {
+        proxy_pass http://ufo_remote;
+        proxy_http_version 1.1;
+        proxy_set_header Host            $host;
+        proxy_set_header X-Real-IP       $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        access_log off;
+    }
+
+    # ---------- 其它路径：给出提示而不是空白 404 ----------
+    location / {
+        default_type text/plain;
+        return 200 "UFO remote relay is running. WebSocket endpoint: /ws  Health: /health\n";
+    }
+}

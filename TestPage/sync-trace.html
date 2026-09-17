@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>同步状态诊断 - UFO Player</title>
+<style>
+  body{margin:0;background:#0e0e16;color:#d8d8e0;font:13px/1.7 Consolas,"Courier New",monospace;padding:16px}
+  h1{font-size:16px;margin:0 0 12px;color:#e8e8f0}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  button{background:#1a1a2e;border:1px solid #0f3460;border-radius:5px;color:#d8d8e0;
+         font:12px/1 Consolas,monospace;padding:8px 12px;cursor:pointer;font-family:inherit}
+  button:hover{background:#22304d}
+  button.primary{background:#0f3460;border-color:#1a5a9a}
+  button.danger{background:#3a1a1a;border-color:#7a2a2a}
+  .stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px 18px;
+        background:#14141f;border:1px solid #23233a;border-radius:6px;padding:12px;margin-bottom:12px}
+  .stat div{display:flex;justify-content:space-between;gap:10px}
+  .k{color:#8890a8}
+  .v{color:#e0e0f0}
+  .v.bad{color:#ff6b6b}.v.warn{color:#fbbf24}.v.ok{color:#4ade80}
+  pre{white-space:pre-wrap;background:#0a0a12;border:1px solid #23233a;border-radius:6px;
+      padding:12px;max-height:60vh;overflow:auto;font-size:12px;margin:0}
+  .hint{color:#8890a8;font-size:12px;margin-bottom:12px}
+  input[type=number]{background:#1a1a2e;border:1px solid #0f3460;color:#d8d8e0;
+                     padding:6px 8px;border-radius:4px;width:90px;font-family:inherit}
+</style>
+</head>
+<body>
+
+<h1>同步状态诊断（横跳取证）</h1>
+<div class="hint">
+  本页用内置假链路跑两个<b>真实 Session</b>，不需要蓝牙、不需要服务器。点「开始」后它会制造一次掉线再恢复，
+  并把每一次同步状态迁移、以及"谁在推状态"的调用栈记录下来。复现横跳后点「复制诊断」把内容发回来。
+</div>
+
+<div class="bar">
+  <button class="primary" id="btnStart">▶ 开始（复现掉线重连）</button>
+  <button id="btnKill">⚡ 现在掐断链路</button>
+  <button id="btnRevive">🔌 恢复链路</button>
+  <button id="btnBump">🔁 连续推 5 次状态</button>
+  <button class="danger" id="btnClear">🗑 清空记录</button>
+  <button id="btnCopy">📋 复制诊断</button>
+</div>
+
+<div class="stat" id="stats"></div>
+<pre id="log">（尚未开始）</pre>
+
+<script src="../WaveControler/js/format.js"></script>
+<script src="../WaveControler/js/protocol.js"></script>
+<script src="../WaveControler/js/link.js"></script>
+<script src="../WaveControler/js/clocksync.js"></script>
+<script src="../WaveControler/js/session.js"></script>
+<script>
+(function () {
+  'use strict';
+  var W = window.WC;
+  var $ = function (id) { return document.getElementById(id); };
+
+  var EV = [];                    // 事件记录（最多保留 400 条）
+  var master = null, slave = null;
+  var LINK = { up: true, forwarded: 0, dropped: 0 };
+  var lastSync = null;
+
+  function nowStr() {
+    var d = new Date();
+    function p(n, w) { n = String(n); while (n.length < w) n = '0' + n; return n; }
+    return p(d.getHours(), 2) + ':' + p(d.getMinutes(), 2) + ':' + p(d.getSeconds(), 2)
+      + '.' + p(d.getMilliseconds(), 3);
+  }
+  function push(kind, detail) {
+    EV.push({ t: nowStr(), kind: kind, detail: detail });
+    if (EV.length > 400) EV.shift();
+    renderLog();
+  }
+
+  // 只保留我们自己代码的调用栈帧，去掉浏览器内部噪声
+  function shortStack() {
+    try {
+      var lines = String(new Error().stack || '').split('\n').slice(1);
+      var out = [];
+      for (var i = 0; i < lines.length && out.length < 4; i++) {
+        var l = lines[i].trim();
+        if (!l) continue;
+        if (/sync-trace\.html|session\.js|protocol\.js/.test(l) || /:\d+:\d+/.test(l)) {
+          out.push(l.replace(/^at\s+/, '').replace(/file:\/\/\/.*\//, ''));
+        }
+      }
+      return out.join('  <-  ');
+    } catch (e) { return '(无栈)'; }
+  }
+
+  function wire(fromSess, toSess) {
+    var fromLabel = fromSess.isMaster ? '主控' : '被控';
+    var toLabel = toSess.isMaster ? '主控' : '被控';
+    fromSess.conn.send = function (msg) {
+      var t = (msg && msg.t) || '?';
+      var extra = '';
+      if (t === 'state') extra = ' rev=' + msg.rev + ' digest=' + String(msg.digest).slice(0, 8);
+      if (t === 'ack') extra = ' seq=' + msg.seq + ' digest=' + String(msg.digest).slice(0, 8);
+      if (t === 'ka') extra = ' rev=' + msg.rev;
+      // 未识别类型：把完整报文打出来，避免"看不见的流量"
+      if (t === '?') {
+        try { extra = ' 完整报文=' + JSON.stringify(msg); }
+        catch (e) { extra = ' (无法序列化)'; }
+      }
+      if (!LINK.up) {
+        LINK.dropped++;
+        push('wire↓', fromLabel + ' → ' + toLabel + '  ' + t + extra + '   【链路已断，丢弃】');
+        return true;
+      }
+      LINK.forwarded++;
+      push('wire→', fromLabel + ' → ' + toLabel + '  ' + t + extra);
+      var to = toSess.conn;
+      setTimeout(function () {
+        if (!to || !to.onMessage) return;
+        // 记录对端校验是否把消息丢掉了（这是"收不到"的常见原因）
+        try {
+          if (msg && msg.t && W.protocol && W.protocol.validate) {
+            var err = W.protocol.validate(msg);
+            if (err) push('drop!', toLabel + ' 校验失败  ' + t + '  → ' + err);
+          }
+        } catch (e) { }
+        to.onMessage(msg);
+      }, 0);
+      return true;
+    };
+  }
+
+  // 记录每一次 _emit 后的同步状态（不只记录变化），用于看清"到底动没动"
+  function wrapStatus(sess, label) {
+    var realEmit = sess._emit;
+    sess._emit = function () {
+      var before = sess.syncState;
+      var r = realEmit.apply(this, arguments);
+      if (before !== this.syncState) {
+        push('sync', label + ' ' + before + ' → ' + this.syncState
+          + '   rev=' + this.rev + ' lastSentRev=' + this.lastSentRev
+          + ' ackRev=' + this.ackRev + ' inflight=' + this.inflight
+          + ' dirty=' + this._dirty + ' retryIdx=' + this.retryIdx);
+      } else {
+        push('emit', label + ' _emit  syncState仍为 ' + this.syncState
+          + '   rev=' + this.rev + ' lastSentRev=' + this.lastSentRev
+          + ' ackRev=' + this.ackRev + ' inflight=' + this.inflight
+          + ' dirty=' + this._dirty + ' opened=' + this.opened);
+      }
+      return r;
+    };
+  }
+
+  // 关键探针：谁在推状态
+  function wrapSetState(sess, label) {
+    var real = sess.setState;
+    sess.setState = function () {
+      var st = shortStack();
+      push('setState', label + ' 被调用（第 ' + (this.rev + 1) + ' 版）  来源: ' + st);
+      return real.apply(this, arguments);
+    };
+  }
+
+  function isMasterReady() {
+    return !!(W.protocol && W.link && W.Session && W.link.Loopback);
+  }
+
+  function build() {
+    if (!isMasterReady()) { push('error', '依赖未就绪：缺少 protocol/link/session'); return false; }
+    master = new W.Session({
+      role: W.protocol.ROLE.MASTER, transport: 'loopback', room: '00000001',
+      onStatus: function () { }, onLog: function () { }
+    });
+    slave = new W.Session({
+      role: W.protocol.ROLE.SLAVE, transport: 'loopback', room: '00000001',
+      onStatus: function () { }, onApplyState: function () { },
+      onFailSafeStop: function (r) { push('failsafe', '被控安全停机: ' + r); },
+      onLog: function () { }
+    });
+    master.start(); slave.start();
+    if (master._startTimers) master._startTimers();
+    if (slave._startTimers) slave._startTimers();
+    wire(master, slave);
+    wire(slave, master);
+    wrapStatus(master, '[主控]');
+    wrapStatus(slave, '[被控]');
+    wrapSetState(master, '[主控]');
+    push('info', '会话已建立（虚拟链路）');
+    return true;
+  }
+
+  function applyState(intensity) {
+    if (!master) return;
+    master.setState({
+      chan: {
+        A: { enabled: true, intensity: intensity || 1, phase: 0, waveKey: '' },
+        B: { enabled: false, intensity: 1, phase: 0, waveKey: '' }
+      }, running: true
+    });
+  }
+
+  function renderStats() {
+    if (!master || !slave) { $('stats').innerHTML = '<div><span class="k">状态</span><span class="v">未建立</span></div>'; return; }
+    var syn = master.syncState;
+    var cls = syn === 'confirmed' ? 'ok' : (syn === 'lost' || syn === 'resending' ? 'bad' : 'warn');
+    var rows = [
+      ['主控同步状态', syn, cls],
+      ['主控 rev', master.rev, ''],
+      ['lastSentRev', master.lastSentRev, ''],
+      ['被控 ackRev', slave.ackRev, (master.lastSentRev === slave.ackRev ? 'ok' : 'bad')],
+      ['inflight（在等确认）', String(master.inflight), master.inflight ? 'warn' : 'ok'],
+      ['dirty（待推）', String(master._dirty), master._dirty ? 'warn' : 'ok'],
+      ['retryIdx（退避档位）', master.retryIdx, master.retryIdx > 0 ? 'warn' : 'ok'],
+      ['主控 peerOnline', String(master.peerOnline), master.peerOnline ? 'ok' : 'bad'],
+      ['被控 peerOnline', String(slave.peerOnline), slave.peerOnline ? 'ok' : 'bad'],
+      ['链路', LINK.up ? '通' : '断（丢弃中）', LINK.up ? 'ok' : 'bad'],
+      ['转发 / 丢弃', LINK.forwarded + ' / ' + LINK.dropped, '']
+    ];
+    $('stats').innerHTML = rows.map(function (r) {
+      return '<div><span class="k">' + r[0] + '</span><span class="v ' + (r[2] || '') + '">' + r[1] + '</span></div>';
+    }).join('');
+  }
+
+  function renderLog() {
+    if (!EV.length) { $('log').textContent = '（尚无记录）'; return; }
+    var lines = EV.map(function (e) {
+      return e.t + '  [' + e.kind + ']  ' + e.detail;
+    });
+    $('log').textContent = lines.join('\n');
+    $('log').scrollTop = $('log').scrollHeight;
+  }
+
+  function text() {
+    var head = '同步状态诊断报告\n生成时间: ' + nowStr() + '\n'
+      + '主控 syncState=' + (master ? master.syncState : 'n/a')
+      + ' rev=' + (master ? master.rev : 'n/a')
+      + ' lastSentRev=' + (master ? master.lastSentRev : 'n/a')
+      + ' 被控ackRev=' + (slave ? slave.ackRev : 'n/a')
+      + ' inflight=' + (master ? master.inflight : 'n/a')
+      + ' retryIdx=' + (master ? master.retryIdx : 'n/a')
+      + ' 转发=' + LINK.forwarded + ' 丢弃=' + LINK.dropped + '\n'
+      + '='.repeat(70) + '\n';
+    return head + EV.map(function (e) {
+      return e.t + '  [' + e.kind + ']  ' + e.detail;
+    }).join('\n');
+  }
+
+  $('btnStart').onclick = function () {
+    EV = [];
+    LINK.up = true; LINK.forwarded = 0; LINK.dropped = 0;
+    if (!master) { if (!build()) return; }
+    push('info', '=== 开始：正常同步 ===');
+    applyState(1);
+    renderStats();
+    // 2 秒后掐断，再 6 秒后恢复，观察恢复期是否横跳
+    setTimeout(function () {
+      push('info', '=== 掐断链路（模拟掉线）===');
+      LINK.up = false;
+      master.lastPeerMsgAt = -1e9;
+      slave.lastPeerMsgAt = -1e9;
+      master._tick(); slave._tick();
+      renderStats();
+    }, 2000);
+    setTimeout(function () {
+      push('info', '=== 恢复链路（观察是否横跳 8 秒）===');
+      LINK.up = true;
+      master.lastPeerMsgAt = 0; slave.lastPeerMsgAt = 0;
+      renderStats();
+    }, 8000);
+    setTimeout(function () {
+      push('info', '=== 观察结束 ===');
+      renderStats();
+    }, 16000);
+  };
+
+  $('btnKill').onclick = function () {
+    LINK.up = false;
+    push('info', '手动掐断链路');
+    renderStats();
+  };
+  $('btnRevive').onclick = function () {
+    LINK.up = true;
+    if (master) master.lastPeerMsgAt = 0;
+    if (slave) slave.lastPeerMsgAt = 0;
+    push('info', '手动恢复链路');
+    renderStats();
+  };
+  $('btnBump').onclick = function () {
+    if (!master) { push('error', '请先点「开始」'); return; }
+    push('info', '连续推 5 次状态（模拟用户连续调参）');
+    for (var i = 0; i < 5; i++) applyState(0.5 + i * 0.1);
+    renderStats();
+  };
+  $('btnClear').onclick = function () { EV = []; renderLog(); };
+  $('btnCopy').onclick = function () {
+    var t = text();
+    try {
+      navigator.clipboard.writeText(t).then(function () {
+        push('info', '已复制到剪贴板（' + EV.length + ' 条）');
+      }, function () { fallbackCopy(t); });
+    } catch (e) { fallbackCopy(t); }
+  };
+  function fallbackCopy(t) {
+    // 剪贴板 API 在 file:// 下可能不可用，退化成"全选 + 提示手动复制"
+    $('log').textContent = t;
+    var r = document.createRange();
+    r.selectNodeContents($('log'));
+    var sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+    push('info', '剪贴板不可用，已自动全选，请按 Ctrl+C 复制');
+  }
+
+  setInterval(renderStats, 300);
+  renderStats();
+  renderLog();
+
+  // 把内部错误也记进日志，避免"页面看着正常但其实炸了"
+  window.addEventListener('error', function (e) {
+    push('error', '未捕获异常: ' + (e && e.message || e)
+      + (e && e.filename ? (' @ ' + String(e.filename).split('/').pop() + ':' + e.lineno) : ''));
+  });
+
+  push('info', '页面已就绪，点「开始」运行诊断');
+
+  // URL 带 ?auto=1 时自动跑一遍（方便无头验证 / 快速取证）
+  if (/[?&]auto=1/.test(location.search)) {
+    setTimeout(function () { $('btnStart').click(); }, 300);
+  }
+})();
+</script>
+</body>
+</html>

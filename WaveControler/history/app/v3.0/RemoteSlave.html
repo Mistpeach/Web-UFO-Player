@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>WaveControler v3.0 Beta - 远程被控</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="wc.css">
+<link rel="stylesheet" href="remote.css">
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="rbRemoteTag local" id="tbTag">⚪ 未接入主控</span>
+  <span class="badge off" id="tbBle">未连接</span>
+  <span id="tbRoom" style="font-family:Consolas,monospace;font-size:13px;color:#e0e0e0;"></span>
+  <a class="gh-link gh-in-toolbar" href="https://github.com/Mistpeach/Web-UFO-Player" target="_blank" rel="noopener" title="GitHub 仓库（新标签页打开）" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a>
+</div>
+
+<!-- 统一状态条：远程标识 / 房间 / 本机蓝牙 / 主控在线 / 延迟 / 保持前台运行 -->
+<div id="remoteBar"></div>
+
+<!-- ============ 三步引导 ============ -->
+<div id="wizard">
+
+  <div class="wzStep active" id="wz-ble">
+    <div class="wzHead"><span class="wzNum">1</span>连接蓝牙</div>
+    <div class="wzBody">
+      <div class="wzHint">先连上玩具 <code>UFO-TW</code>。本页面是<b>被控方</b>，只有它能真正操作蓝牙。</div>
+      <div class="wzRow">
+        <button class="wzBtn primary" id="btnConnectBle">🔵 连接蓝牙</button>
+        <span class="wzHint" style="margin:0">当前：<span class="v bad" id="bleStateMini">未连接</span></span>
+      </div>
+      <div class="wzErr" id="bleErr"></div>
+    </div>
+  </div>
+
+  <div class="wzStep" id="wz-server">
+    <div class="wzHead"><span class="wzNum">2</span>填写服务器地址</div>
+    <div class="wzBody">
+      <input type="text" id="inServer" placeholder="例如 wss://你的域名 或 你的域名:8080">
+      <div class="wzHint">
+        填主控方要连的同一个服务器。公网部署必须用 <code>wss://</code>（页面是 https 时浏览器不允许明文 ws）。<br>
+        只有主机名和端口也可以，程序会自动补 <code>/ws</code>；本机调试可以填 <code>localhost:8080</code>。
+      </div>
+      <label class="sbChk" style="display:flex;align-items:center;gap:6px;margin-top:10px;color:#8899aa;font-size:12.5px;cursor:pointer;">
+        <input type="checkbox" id="chkLocalMode">
+        本地调试模式（同一浏览器的两个标签页直连，不需要服务器）
+      </label>
+      <div id="localModeHint" class="wzHint" style="display:none;color:#fbbf24;margin-top:8px;">
+        ✅ 已开启本地调试：不需要填服务器地址，直接点下面的「创建房间」即可。<br>
+        然后<b>再开一个标签页</b>打开 <code>RemoteMaster.html</code>，同样勾选本地调试，房间号填 <code>00000001</code> 就能连上。
+      </div>
+      <div class="wzRow">
+        <button class="wzBtn" id="btnTestServer">🔌 测试连接</button>
+        <span id="serverTestOut" style="font-size:12.5px;color:#8899aa;"></span>
+      </div>
+      <div class="wzErr" id="serverErr"></div>
+    </div>
+  </div>
+
+  <div class="wzStep" id="wz-room">
+    <div class="wzHead"><span class="wzNum">3</span>创建房间</div>
+    <div class="wzBody">
+      <div class="wzRow">
+        <button class="wzBtn primary" id="btnCreateRoom">🏠 创建房间</button>
+        <button class="wzBtn" id="btnReset" style="display:none">↩ 重新设置</button>
+      </div>
+      <div id="roomOut" style="display:none"></div>
+      <div class="wzErr" id="roomErr"></div>
+    </div>
+  </div>
+
+  <div class="wzHint" id="wizardHint" style="display:none;margin-top:4px;padding:9px 12px;border-radius:6px;background:#1a1a2e;border:1px solid #0f3460;"></div>
+
+</div>
+
+<!-- ============ 接入主控后的主界面 ============ -->
+<div id="slaveMain" style="display:none">
+
+  <div class="panel">
+    <h3>🛑 急停</h3>
+    <button id="btnManualStop">⏹ 立即停止并锁定</button>
+    <div id="lockState"></div>
+    <div class="wzRow">
+      <button class="wzBtn" id="btnUnlock" style="display:none">🔓 解锁（允许主控重新开启输出）</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>📊 状态与网络</h3>
+    <div class="kvRow" id="infoGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px 20px;align-items:baseline;"></div>
+  </div>
+
+  <div class="panel">
+    <h3>ℹ️ 说明</h3>
+    <div class="wzHint" style="margin:0">
+      本页面是<b>被控方</b>：玩具的蓝牙由本机持有，主控方下发的只是「用哪个波形、强度多少、相位多少、开还是关」，
+      真正的 20Hz 指令由本机生成。<br>
+      · 参数<b>完全由主控决定</b>，本机不能修改<br>
+      · 急停<b>永远可用</b>，并且会锁定，主控无法解除<br>
+      · 与主控失联超过 <b>8 秒</b>、或主控离开房间、或与服务器断开，本机都会<b>立即安全停机</b><br>
+      · 本页面必须保持打开并前台运行，否则蓝牙会中断
+    </div>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<!-- 保持前台运行说明 -->
+<div id="tipModal" role="dialog" aria-modal="true" style="position:fixed;inset:0;z-index:1010;background:rgba(0,0,0,0.78);align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)WC.slaveui.closeTip()">
+  <div class="mbox small" style="max-width:460px;background:#16213e;border:1px solid #0f3460;border-radius:8px;overflow:hidden;width:100%">
+    <div class="mhead" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #0f3460;font-size:15px;color:#e0e0e0;">
+      <span>⏱ 保持前台运行</span>
+      <button id="tipClose" style="background:#1a1a2e;border:1px solid #0f3460;border-radius:4px;color:#e0e0e0;font-size:12px;padding:4px 10px;cursor:pointer;font-family:inherit;">✕ 关闭</button>
+    </div>
+    <div class="mbody" style="padding:16px;font-size:13px;line-height:1.8;color:#c0c0c0;">
+      <p>为保证使用体验，请保持页面处于<b>前台运行</b>。</p>
+      <p>页面切到后台或最小化时，浏览器会把后台页面的定时器降频，蓝牙发包速度会从 <b>20 次/秒</b> 降到 <b>约 1 次/秒</b>（Chromium 强制规定 <code>1s/次</code>），动作会变得一顿一顿。</p>
+      <p>远程控制下这一点更要注意：页面被系统冻结时，与主控的心跳也可能超时，触发<b>安全停机</b>。</p>
+    </div>
+  </div>
+</div>
+
+<script src="presets.js"></script>
+<script src="js/format.js"></script>
+<script src="js/ble.js"></script>
+<script src="js/store.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/scope.js"></script>
+<script src="js/protocol.js"></script>
+<script src="js/link.js"></script>
+<script src="js/clocksync.js"></script>
+<script src="js/session.js"></script>
+<script src="js/slaveui.js"></script>
+</body>
+</html>

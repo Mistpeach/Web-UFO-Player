@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>WaveControler v3.0 Beta - 远程主控</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="wc.css">
+<link rel="stylesheet" href="remote.css">
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="rbRemoteTag local" id="tbTag">⚪ 未接入房间</span>
+  <span id="tbRoom" style="font-family:Consolas,monospace;font-size:13px;color:#e0e0e0;"></span>
+  <button id="btnJoinRoom" title="打开连接房间弹窗（填服务器地址与 8 位房间号）">🔗 连接房间</button>
+  <button id="btnMasterRun">▶ 开始输出</button>
+  <button id="btnMasterStop" class="danger" title="立即让被控方归零">⏹ 远程急停</button>
+  <button id="btnLibToggle">☰ 波形库</button>
+  <button id="btnExit" title="断开房间，回到连接界面">🔌 退出房间</button>
+  <a class="gh-link gh-in-toolbar" href="https://github.com/Mistpeach/Web-UFO-Player" target="_blank" rel="noopener" title="GitHub 仓库（新标签页打开）" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a>
+</div>
+
+<!-- 统一状态条：远程标识 / 房间 / 被控在线与蓝牙 / 三个延迟 / 同步状态 / 保持前台运行 -->
+<div id="remoteBar"></div>
+
+<div id="layout">
+  <div id="backdrop" onclick="WC.masterui.closeLib()"></div>
+
+  <aside id="sidebar" aria-hidden="true">
+    <div id="libHeader">
+      <span id="libTitle">📚 波形库（主控自己的）</span>
+      <button id="libClose">✕ 关闭</button>
+    </div>
+    <input id="libSearch" type="search" placeholder="搜索波形名…" oninput="WC.masterui.renderLib()">
+    <select id="libTarget" title="选择要下发给哪个通道">
+      <option value="A">下发给：通道 A</option>
+      <option value="B">下发给：通道 B</option>
+    </select>
+    <div id="libList"></div>
+    <div id="libFoot">👆 点击波形即下发给所选通道（会连同波形内容一起发给被控方）</div>
+  </aside>
+
+  <main id="main">
+    <div id="cards"></div>
+
+    <div id="statusBar">
+      <span id="stConn">🌐 远程</span>
+      <span class="sep">·</span>
+      <span id="stRun">⏸ 未输出</span>
+      <span class="sep">·</span>
+      <span id="stRate">-</span>
+      <span id="stErr">错误 0</span>
+    </div>
+
+    <div class="panel" style="margin:10px;">
+      <h3>📊 被控方状态与网络</h3>
+      <div class="kvRow" id="infoGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px 20px;align-items:baseline;"></div>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<!-- ============ 连接房间弹窗（先输入，再连接） ============ -->
+<div id="connectModal" onclick="if(event.target===this)WC.masterui.closeConnect()">
+  <div id="connectBox">
+    <div id="connectHead">
+      <span>🔗 连接房间</span>
+      <button id="btnConnectClose">✕ 关闭</button>
+    </div>
+    <div id="connectBody">
+      <label for="inUrl">服务器地址</label>
+      <input type="text" id="inUrl" placeholder="例如 wss://你的域名 或 你的域名:8080">
+      <label for="inRoom">房间号（8 位数字）</label>
+      <input type="text" id="inRoom" class="mono" inputmode="numeric" maxlength="8" placeholder="12345678">
+      <label class="sbChk" style="display:flex;align-items:center;gap:6px;margin-top:12px;color:#8899aa;font-size:12.5px;cursor:pointer;">
+        <input type="checkbox" id="chkLocalMode">
+        本地调试模式（同一浏览器的两个标签页直连，不需要服务器，房间号随便填）
+      </label>
+      <div id="connectErr"></div>
+      <div id="connectNote">
+        房间号由<b>被控方</b>创建后发给你。<br>
+        · 被控方必须先连上玩具的蓝牙，本页面才能控制到设备<br>
+        · 连接后本页会<b>自动断开本机蓝牙</b>并禁用「连接蓝牙」，因为蓝牙由被控方持有<br>
+        · 建议全程保持本页面在前台
+      </div>
+    </div>
+    <div id="connectFoot">
+      <button class="primary" id="btnDoConnect">连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- 保持前台运行说明 -->
+<div id="tipModal" role="dialog" aria-modal="true" style="position:fixed;inset:0;z-index:1010;background:rgba(0,0,0,0.78);align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)WC.masterui.closeTip()">
+  <div class="mbox small" style="max-width:460px;background:#16213e;border:1px solid #0f3460;border-radius:8px;overflow:hidden;width:100%">
+    <div class="mhead" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #0f3460;font-size:15px;color:#e0e0e0;">
+      <span>⏱ 保持前台运行</span>
+      <button id="tipClose" style="background:#1a1a2e;border:1px solid #0f3460;border-radius:4px;color:#e0e0e0;font-size:12px;padding:4px 10px;cursor:pointer;font-family:inherit;">✕ 关闭</button>
+    </div>
+    <div class="mbody" style="padding:16px;font-size:13px;line-height:1.8;color:#c0c0c0;">
+      <p>为保证使用体验，请保持页面处于<b>前台运行</b>。</p>
+      <p>页面切到后台时浏览器会把定时器降频，<b>与你相关的两件事都会受影响</b>：</p>
+      <p>· <b>你这边</b>：状态同步与心跳会变慢，参数生效出现延迟<br>
+         · <b>被控方那边</b>：如果它也被挂到后台，蓝牙发包会从 20 次/秒降到约 1 次/秒，动作变得一顿一顿</p>
+      <p>更严重的情况：任一端长时间被系统冻结，心跳超时后会触发<b>被控方安全停机</b>（需要重新开启输出）。</p>
+    </div>
+  </div>
+</div>
+
+<script src="presets.js"></script>
+<script src="js/format.js"></script>
+<script src="js/ble.js"></script>
+<script src="js/store.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/scope.js"></script>
+<script src="js/protocol.js"></script>
+<script src="js/link.js"></script>
+<script src="js/clocksync.js"></script>
+<script src="js/session.js"></script>
+<script src="js/virtualble.js"></script>
+<script src="js/masterui.js"></script>
+</body>
+</html>

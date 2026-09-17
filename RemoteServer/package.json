@@ -1,0 +1,18 @@
+{
+  "name": "ufo-remote-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web-UFO-Player 远程控制中继服务器（零 npm 依赖，内置 WebSocket 实现）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js",
+    "health": "node -e \"require('http').get('http://127.0.0.1:'+(process.env.UFO_PORT||8787)+'/health',function(r){r.pipe(process.stdout)})\""
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "license": "MIT"
+}

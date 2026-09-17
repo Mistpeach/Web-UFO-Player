@@ -1,0 +1,204 @@
+/* ============================================================
+   remote.css - 远程控制两个页面的共用样式
+   在 ./style.css 与 ./wc.css 之后加载，复用它们的调色板、
+   #toolbar / .badge / .toast / .mbox（弹窗骨架）等既有规则。
+   这里只写远程控制需要的新东西：
+     · 顶部统一状态条（远程标识 / 房间号 / 被控蓝牙 / 延迟 / 同步状态 / 保持前台运行）
+     · 被控端三步引导
+     · 主控端"连接房间"弹窗
+     · 延迟与同步状态的配色
+   ============================================================ */
+
+/* ---------- 统一状态条：与"保持前台运行"同一行 ---------- */
+#remoteBar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; overflow-x: auto; white-space: nowrap;
+  padding-left: calc(12px + env(safe-area-inset-left));
+  padding-right: calc(12px + env(safe-area-inset-right));
+  background: #1a1a2e; border-bottom: 1px solid #0f3460;
+  font-size: 12px; color: #9fb0c4;
+  scrollbar-width: thin;
+}
+#remoteBar::-webkit-scrollbar { height: 4px; }
+#remoteBar::-webkit-scrollbar-thumb { background: #2a3a5c; border-radius: 2px; }
+
+.rbItem { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.rbSep { color: #0f3460; flex-shrink: 0; }
+
+/* 远程控制中的显著标识 —— 必须一眼看到，避免误以为在控制本机设备 */
+.rbRemoteTag {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  padding: 3px 10px; border-radius: 10px; font-weight: 700; font-size: 11.5px;
+  background: linear-gradient(135deg, #533483, #a855f7); color: #fff;
+}
+.rbRemoteTag.local { background: #1f2b45; color: #9fb0c4; font-weight: 400; }
+
+.rbRoom { font-family: Consolas, monospace; font-weight: 700; color: #e0e0e0; letter-spacing: 1px; }
+.rbDot { width: 7px; height: 7px; border-radius: 50%; background: #6b7a8f; flex-shrink: 0; }
+.rbDot.on { background: #3ddc97; }
+.rbDot.off { background: #ff6b6b; }
+.rbDot.warn { background: #fbbf24; animation: rbPulse 1.6s ease-in-out infinite; }
+@keyframes rbPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* 延迟配色：好/一般/差 */
+.rbLat.good { color: #3ddc97; }
+.rbLat.mid { color: #fbbf24; }
+.rbLat.bad { color: #ff6b6b; }
+
+/* 同步状态 */
+.rbSync { font-weight: 700; }
+.rbSync.confirmed { color: #3ddc97; }
+.rbSync.syncing { color: #fbbf24; }
+.rbSync.resending { color: #fbbf24; }
+.rbSync.lost { color: #ff6b6b; }
+.rbSync.idle { color: #6b7a8f; }
+
+/* 保持前台运行的问号按钮（远程页里也保留这个能力） */
+.rbHelp {
+  flex-shrink: 0; width: 18px; height: 18px; padding: 0; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; font-family: inherit;
+  border-radius: 50%; border: 1px solid #6b5a2a; background: #2a2416;
+  color: #fbbf24; cursor: pointer;
+}
+.rbHelp:hover { background: #3a3120; }
+
+/* ---------- 被控端：三步引导 ---------- */
+#wizard { max-width: 560px; margin: 0 auto; padding: 24px 16px 40px; }
+.wzStep {
+  border: 1px solid #0f3460; border-radius: 8px; background: #16213e;
+  padding: 14px 16px; margin-bottom: 12px;
+}
+.wzStep.active { border-color: #533483; box-shadow: 0 0 0 1px rgba(83,52,131,0.35) inset; }
+.wzStep.done { opacity: 0.72; }
+.wzHead { display: flex; align-items: center; gap: 10px; font-size: 14.5px; color: #e0e0e0; }
+.wzNum {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; background: #1a1a2e; color: #8899aa;
+  border: 1px solid #0f3460;
+}
+.wzStep.active .wzNum { background: linear-gradient(135deg, #533483, #a855f7); color: #fff; border-color: transparent; }
+.wzStep.done .wzNum { background: #1f3a2c; color: #3ddc97; border-color: #2c5a41; }
+.wzBody { margin-top: 12px; }
+.wzBody input[type=text], .wzBody input[type=number] {
+  width: 100%; padding: 9px 11px; font-size: 14px; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 5px; background: #1a1a2e; color: #e0e0e0;
+}
+.wzBody input:focus { outline: none; border-color: #533483; }
+.wzHint { font-size: 12px; color: #6b7a8f; line-height: 1.7; margin-top: 8px; }
+.wzRow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+.wzBtn {
+  padding: 8px 16px; font-size: 13.5px; font-family: inherit; cursor: pointer;
+  border: 1px solid #0f3460; border-radius: 5px; background: #1a1a2e; color: #e0e0e0;
+}
+.wzBtn:hover { background: #0f3460; }
+.wzBtn.primary { background: linear-gradient(135deg, #533483, #a855f7); border: none; color: #fff; }
+.wzBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.wzErr { font-size: 12.5px; color: #ff6b6b; min-height: 16px; margin-top: 8px; }
+
+/* 房间号大字显示 */
+.roomBig {
+  font-family: Consolas, monospace; font-size: 30px; font-weight: 700;
+  letter-spacing: 4px; color: #a78bfa; text-align: center;
+  padding: 12px 8px; background: #101828; border: 1px dashed #533483;
+  border-radius: 8px; margin: 10px 0;
+}
+.roomBig.small { font-size: 20px; letter-spacing: 2px; }
+
+/* ---------- 被控端主界面：信息面板 ---------- */
+#slaveMain { max-width: 860px; margin: 0 auto; padding: 14px 16px 40px; }
+.panel {
+  border: 1px solid #0f3460; border-radius: 8px; background: #16213e;
+  padding: 12px 14px; margin-bottom: 12px;
+}
+.panel h3 {
+  font-size: 13px; color: #a78bfa; margin: 0 0 10px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.kvRow { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: #c0c0c0; }
+.kvRow .k { color: #8899aa; margin-right: 6px; }
+.kvRow .v { color: #e0e0e0; font-weight: 600; }
+.kvRow .v.mono { font-family: Consolas, monospace; }
+.kvRow .v.ok { color: #3ddc97; }
+.kvRow .v.bad { color: #ff6b6b; }
+.kvRow .v.warn { color: #fbbf24; }
+
+/* 急停：被控端永远可用，单击立即生效（安全操作不设防误触门槛） */
+#btnManualStop {
+  width: 100%; padding: 16px; font-size: 17px; font-weight: 700; font-family: inherit;
+  border: 1px solid #6b3030; border-radius: 8px; cursor: pointer;
+  background: #2a1a1a; color: #fca5a5;
+}
+#btnManualStop:hover { background: #6b3030; color: #fff; }
+#btnManualStop:active { transform: scale(0.985); }
+
+/* 锁定位提示 */
+.lockNote {
+  margin-top: 10px; padding: 9px 12px; border-radius: 6px; font-size: 12.5px; line-height: 1.7;
+  background: #2a2416; border: 1px solid #6b5a2a; color: #fbbf24;
+}
+
+/* ---------- 主控端：连接房间弹窗 ---------- */
+#connectModal {
+  position: fixed; inset: 0; z-index: 1010; background: rgba(0,0,0,0.82);
+  display: none; align-items: center; justify-content: center; padding: 16px;
+}
+#connectModal.open { display: flex; }
+
+/* 「保持前台运行」提示弹窗。
+   #tipModal 在 HTML 里是内联 style="display:none"，只有靠这条 .open 规则才能显示出来。
+   之前漏了它，`classList.add('open')` 加了也没用 —— 表现就是两个页面上的「?」点了没反应。 */
+#tipModal { display: none; align-items: center; justify-content: center; }
+#tipModal.open { display: flex; }
+#connectBox {
+  width: 100%; max-width: 460px; max-height: 88dvh; overflow: hidden;
+  display: flex; flex-direction: column;
+  background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+  box-shadow: 0 12px 44px rgba(0,0,0,0.65);
+}
+#connectHead {
+  padding: 13px 16px; border-bottom: 1px solid #0f3460;
+  font-size: 15px; color: #e0e0e0; display: flex; justify-content: space-between; align-items: center;
+}
+#connectHead button {
+  background: #1a1a2e; border: 1px solid #0f3460; border-radius: 4px;
+  color: #e0e0e0; font-size: 12px; padding: 4px 10px; cursor: pointer; font-family: inherit;
+}
+#connectBody { padding: 16px; overflow-y: auto; font-size: 13.5px; color: #c0c0c0; }
+#connectBody label { display: block; font-size: 12.5px; color: #8899aa; margin: 12px 0 5px; }
+#connectBody input {
+  width: 100%; padding: 9px 11px; font-size: 14px; font-family: inherit;
+  border: 1px solid #0f3460; border-radius: 5px; background: #1a1a2e; color: #e0e0e0;
+}
+#connectBody input:focus { outline: none; border-color: #533483; }
+#connectBody input.mono { font-family: Consolas, monospace; letter-spacing: 2px; }
+#connectFoot {
+  display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;
+  padding: 12px 16px; border-top: 1px solid #0f3460; background: #131c33;
+}
+#connectFoot button {
+  padding: 9px 18px; font-size: 13.5px; font-family: inherit; cursor: pointer;
+  border: 1px solid #0f3460; border-radius: 5px; background: #1a1a2e; color: #e0e0e0;
+}
+#connectFoot button.primary { background: linear-gradient(135deg, #533483, #a855f7); border: none; color: #fff; }
+#connectFoot button:disabled { opacity: 0.45; cursor: not-allowed; }
+#connectErr { font-size: 12.5px; color: #ff6b6b; min-height: 18px; margin-top: 10px; }
+#connectNote {
+  margin-top: 12px; padding: 9px 12px; border-radius: 6px; font-size: 12px; line-height: 1.7;
+  background: #1a1a2e; border: 1px solid #0f3460; color: #8899aa;
+}
+
+/* ---------- 主控端：禁用"连接蓝牙" ---------- */
+#toolbar button.remoteDisabled,
+#toolbar button:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 720px) {
+  .roomBig { font-size: 24px; letter-spacing: 3px; }
+  #btnManualStop { font-size: 15px; padding: 14px; }
+  .kvRow { gap: 6px 16px; font-size: 12.5px; }
+}

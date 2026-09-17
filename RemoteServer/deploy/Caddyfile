@@ -1,0 +1,61 @@
+# ============================================================
+# Caddyfile - UFO 远程控制中继的反向代理配置
+#
+# 用法：
+#   1) 把下面第一行的域名改成你自己的
+#   2) sudo cp Caddyfile /etc/caddy/Caddyfile
+#   3) sudo systemctl reload caddy
+#
+# Caddy 会自动：
+#   · 申请并自动续期 Let's Encrypt 证书（不需要手工配 certbot）
+#   · 把 http 自动跳转到 https
+#   · 处理 WebSocket 升级（不需要手工写 Upgrade / Connection 头）
+#
+# 前置条件：域名 A 记录已指向本机公网 IP，且 80 / 443 已放行。
+# ============================================================
+
+ufo.你的域名.com {
+	# 压缩（对 JSON 文本有效，能省一点带宽）
+	encode gzip
+
+	# 转发到本机的 Node 中继服务。
+	# Caddy 识别到 upstream 是普通 HTTP 时会自动支持 WebSocket 升级，
+	# 所以这里不需要任何额外的 header 配置。
+	reverse_proxy 127.0.0.1:8787
+
+	# 访问日志（与服务器自己的日志相互独立，便于区分"代理层"和"业务层"的问题）
+	log {
+		output file /var/log/caddy/ufo-remote.log
+		format json
+	}
+
+	# 安全响应头
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
+
+# ------------------------------------------------------------
+# 可选：如果你希望在同一个 Caddy 上顺便托管静态页面（WebApp 本体）
+# 把注释去掉并改路径即可。注意静态站点的路径要与 RemoteServer 的 /ws 不冲突。
+# ------------------------------------------------------------
+# ufo.你的域名.com {
+# 	encode gzip
+#
+# 	# 静态页面
+# 	handle /app/* {
+# 		root * /opt/ufo-web
+# 		file_server
+# 	}
+#
+# 	# 远程中继
+# 	handle /ws {
+# 		reverse_proxy 127.0.0.1:8787
+# 	}
+#
+# 	handle /health {
+# 		reverse_proxy 127.0.0.1:8787
+# 	}
+# }

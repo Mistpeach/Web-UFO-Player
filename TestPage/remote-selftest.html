@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>远程控制 · 集成自测</title>
+<style>
+  body { background:#0f1729; color:#e0e0e0; font-family:system-ui,"Microsoft YaHei",sans-serif;
+         max-width:900px; margin:0 auto; padding:24px 18px 60px; line-height:1.7; }
+  h1 { font-size:1.4rem; color:#a78bfa; }
+  p.lead { color:#8899aa; font-size:13px; }
+  #out { margin-top:16px; }
+  .case { padding:8px 12px; border-radius:6px; background:#16213e; border:1px solid #0f3460; margin-bottom:6px; }
+  .case.ok { border-color:#2c5a41; }
+  .case.fail { border-color:#6b3030; }
+  .tag { font-weight:700; margin-right:8px; }
+  .tag.ok { color:#3ddc97; }
+  .tag.fail { color:#ff6b6b; }
+  .detail { color:#8899aa; font-size:12px; font-family:Consolas,monospace; }
+  #sum { margin-top:18px; padding:14px; border-radius:8px; font-size:15px; font-weight:700; }
+  #sum.pass { background:#16302a; border:1px solid #2c5a41; color:#3ddc97; }
+  #sum.fail { background:#2a1a1a; border:1px solid #6b3030; color:#ff6b6b; }
+  button { margin-top:14px; padding:11px 22px; font-size:15px; border:none; border-radius:6px;
+           background:linear-gradient(135deg,#533483,#a855f7); color:#fff; cursor:pointer; font-family:inherit; }
+  button:disabled { opacity:.5; cursor:default; }
+  code { background:#101828; padding:1px 5px; border-radius:3px; color:#a78bfa; font-size:12px; }
+</style>
+</head>
+<body>
+
+<h1>远程控制 · 集成自测</h1>
+<p class="lead">
+  这个页面<b>加载生产代码</b>（protocol / link / clocksync / session），用 Loopback 通道把两个真实 Session 对接起来跑一遍，
+  验证同步、重传、时钟对齐、失联停机这几条关键路径。<b>不需要服务器，也不需要真机。</b><br>
+  直接用 Chrome / Edge 打开本文件，点下面的按钮即可。它不碰蓝牙、不碰服务器、不改任何数据。
+</p>
+
+<button id="btnRun">▶ 开始自测</button>
+<div id="out"></div>
+<div id="sum" style="display:none"></div>
+
+<script src="../WaveControler/js/protocol.js"></script>
+<script src="../WaveControler/js/link.js"></script>
+<script src="../WaveControler/js/clocksync.js"></script>
+<script src="../WaveControler/js/session.js"></script>
+<script>
+(function () {
+  'use strict';
+  var P = window.WC.protocol, L = window.WC.link, CS = window.WC.Clocksync, Session = window.WC.Session;
+  var out = document.getElementById('out');
+  var results = [];
+
+  function log(name, ok, detail) {
+    results.push({ name: name, ok: !!ok, detail: detail || '' });
+    var d = document.createElement('div');
+    d.className = 'case ' + (ok ? 'ok' : 'fail');
+    d.innerHTML = '<span class="tag ' + (ok ? 'ok' : 'fail') + '">' + (ok ? '✅' : '❌') + '</span>' +
+      name + (detail ? ' <span class="detail">' + detail + '</span>' : '');
+    out.appendChild(d);
+  }
+  function head(text) {
+    var d = document.createElement('div');
+    d.style.cssText = 'margin:18px 0 8px;color:#a78bfa;font-weight:700;font-size:14px;';
+    d.textContent = text;
+    out.appendChild(d);
+  }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function makeWave(name, dur, pts) {
+    return {
+      fp: P.waveFingerprint({ name: name, duration: dur, mode: 'hold', base: 127, loop: true,
+        channels: { A: pts, B: pts } }),
+      name: name, duration: dur, mode: 'hold', base: 127, loop: true, notes: '',
+      channels: { A: pts, B: pts }
+    };
+  }
+
+  async function run() {
+    results.length = 0;
+    out.innerHTML = '';
+    document.getElementById('sum').style.display = 'none';
+
+    // ============================================================
+    head('一、协议层：形状校验 / 波形指纹 / 分片');
+    // ============================================================
+    var w1 = makeWave('测试波形', 1.0, [[0, 100], [0.5, 0], [0.8, -60]]);
+    log('波形指纹是 8 位十六进制', /^[0-9a-f]{8}$/.test(w1.fp), w1.fp);
+    log('波形载荷校验通过', P.validateWavePayload(w1) === null, String(P.validateWavePayload(w1)));
+
+    var bad1 = JSON.parse(JSON.stringify(w1)); bad1.channels.A[1][0] = -1;
+    log('时间戳为负 → 被拒绝', P.validateWavePayload(bad1) !== null, String(P.validateWavePayload(bad1)));
+
+    var bad2 = JSON.parse(JSON.stringify(w1)); bad2.channels.A.push([0.9, 999]);
+    log('幅度越界 → 被拒绝', P.validateWavePayload(bad2) !== null, String(P.validateWavePayload(bad2)));
+
+    var bad3 = JSON.parse(JSON.stringify(w1)); bad3.channels.A[0][1] = 42;   // 改了内容，指纹没变
+    log('内容与指纹不符 → 被拒绝（防篡改）', P.validateWavePayload(bad3) !== null, String(P.validateWavePayload(bad3)));
+
+    log('未排序的时间戳 → 被拒绝', (function () {
+      var b = JSON.parse(JSON.stringify(w1));
+      b.channels.A = [[0.5, 10], [0.2, 20]];
+      b.fp = P.waveFingerprint({ name: b.name, duration: b.duration, mode: b.mode, base: b.base, loop: b.loop, channels: b.channels });
+      return P.validateWavePayload(b) !== null;
+    })());
+
+    log('畸形业务消息被 validate 拦下', P.validate({ t: 'state', rev: -1 }) !== null, String(P.validate({ t: 'state', rev: -1 })));
+    log('未知类型被拦下', P.validate({ t: 'evil' }) !== null, String(P.validate({ t: 'evil' })));
+    log('版本不符的 hello 被拦下', P.validate({ t: 'hello', version: 999, role: 'master' }) !== null);
+
+    // 分片：造一个大波形（超过 8KB）走一遍
+    var bigPts = [], i;
+    for (i = 0; i < 1200; i++) bigPts.push([i * 0.001, (i % 254) - 127]);
+    var bigWave = makeWave('大波形', 1.2, bigPts);
+    var bigState = { t: 'state', rev: 1, running: true, beatKey: 0,
+      ch: { A: { enabled: true, intensity: 1, phase: 0, waveKey: bigWave.fp },
+            B: { enabled: false, intensity: 1, phase: 0, waveKey: '' } },
+      waves: (function () { var o = {}; o[bigWave.fp] = bigWave; return o; })() };
+    var parts = P.chunk(bigState);
+    log('大消息被切成多片', parts && parts.length > 1, '片数 ' + (parts ? parts.length : 0));
+    var asm = P.ChunkAssembler(), done = null;
+    for (i = 0; i < parts.length; i++) {
+      var r = asm.push(parts[i]);
+      if (r.error) { done = { error: r.error }; break; }
+      if (r.done) done = r;
+    }
+    log('分片可完整重组', !!(done && done.msg && done.msg.rev === 1), done && done.error ? done.error : '');
+    log('重组后仍能通过校验', done && done.msg ? P.validate(done.msg) === null : false,
+      done && done.msg ? String(P.validate(done.msg)) : 'n/a');
+
+    // ============================================================
+    head('二、时钟偏差估算（NTP 四点，带单向延迟）');
+    // ============================================================
+    (function () {
+      var master = new CS();
+      var TRUE_OFFSET = -812345.6 + 2301.2;   // 被控时钟 - 主控时钟
+      var D1 = 40, D2 = 55;                   // 两个方向的单程延迟
+      for (var k = 0; k < 6; k++) {
+        var t1 = 1000 + k * 2000;
+        var jit = (k % 3) * 6;
+        var t2 = t1 + D1 + jit + TRUE_OFFSET;      // 被控收到（被控钟）
+        var t3 = t2 + 0.2;                          // 被控回复（被控钟）
+        var t4 = t3 - TRUE_OFFSET + D2 - jit;       // 主控收到（主控钟）
+        master.sent = { t1: t1 };
+        master.completeProbe({ t2: t2, t3: t3 }, t4);
+      }
+      var info = master.info();
+      var err = Math.abs(info.offset - TRUE_OFFSET);
+      log('时钟偏差估算误差 < 15ms', err < 15, '真实 ' + TRUE_OFFSET.toFixed(1) + ' 估算 ' + info.offset.toFixed(1) + ' 误差 ' + err.toFixed(1) + 'ms');
+      log('往返延迟估算接近 95ms', Math.abs(info.rtt - 95) < 20, info.rtt.toFixed(1) + 'ms');
+      log('样本足够后标记为稳定', info.stable === true || info.samples >= 3, 'samples=' + info.samples);
+      // 换算工具
+      var peerClk = master.toPeerClock(5000);
+      log('主控钟 → 被控钟换算正确', Math.abs(peerClk - (5000 + info.offset)) < 1e-6, 'peer=' + peerClk.toFixed(1));
+    })();
+
+    // ============================================================
+    head('三、端到端：主控 ⇄ 被控（Loopback 真实 Session）');
+    // ============================================================
+    // ⚠ 关键：transport 必须声明成 'broadcast'，不能用 'loopback'。
+    //   原因：session._send() 只有在 transportKind === 'broadcast' 时才直接发业务消息；
+    //   其它类型都会包一层 {t:'relay', payload:{c,i,n,d}} 的信封（那是给真服务器用的），
+    //   而 Loopback 前面没有服务器拆信封，对端就会把 t:'relay' 当成未知类型丢掉。
+    //   所以我们用 Loopback 的**连接**，但把**传输类型**声明成 broadcast
+    //   —— 这两件事本来是解耦的（连接怎么送、消息要不要信封）。
+    var pair = L.Loopback.pair();
+    var slaveApplied = [];
+    var failsafe = [];
+    var statuses = [];
+
+    var master = new Session({
+      role: 'master', transport: 'broadcast', room: 'test0001',
+      onStatus: function (i) { statuses.push(i); }
+    });
+    var slave = new Session({
+      role: 'slave', transport: 'broadcast', room: 'test0001',
+      onStatus: function () { },
+      onApplyState: function (a) { slaveApplied.push(a); },
+      onFailSafeStop: function (r) { failsafe.push(r); }
+    });
+
+    // 手动把两条 conn 交叉接上（Loopback.pair 给了两个端点）
+    master.conn = pair[0];
+    slave.conn = pair[1];
+    master.conn.onMessage = function (m) { master._onServerMsg(m); };
+    slave.conn.onMessage = function (m) { slave._onServerMsg(m); };
+    master.opened = true; slave.opened = true;
+    master.peerOnline = true; slave.peerOnline = true;
+    master._startTimers(); slave._startTimers();
+    master.lastPeerMsgAt = slave.lastPeerMsgAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    // 登记起来，结束时统一停掉定时器
+    window.__testSessions = [master, slave];
+
+    // ---------- 诊断：记录被控端实际收到什么、校验为什么失败 ----------
+    // 会话层对非法消息是「静默丢弃」的（这是对的，避免刷屏），
+    // 但排查问题时需要看到原因，所以这里包一层。
+    var diag = { recv: [], dropped: [] };
+    var origSlaveBusiness = slave._onBusiness;
+    slave._onBusiness = function (msg) {
+      diag.recv.push(msg && msg.t);
+      var err = P.validate(msg);
+      if (err) diag.dropped.push((msg && msg.t) + ' → ' + err);
+      return origSlaveBusiness.call(slave, msg);
+    };
+    var origMasterBusiness = master._onBusiness;
+    master._onBusiness = function (msg) {
+      diag.recv.push('M:' + (msg && msg.t));
+      return origMasterBusiness.call(master, msg);
+    };
+
+    // 主控下发一个波形 + 开启输出
+    var fp = master.offerWave({ name: '远程测试', duration: 1.0, mode: 'hold', base: 127, loop: true,
+      channels: { A: [[0, 100], [0.5, 0]], B: [[0, 60]] } });
+    log('offerWave 返回指纹', /^[0-9a-f]{8}$/.test(fp || ''), String(fp));
+    master.setState({ chan: { A: { enabled: true, intensity: 0.8, phase: 0, waveKey: fp } }, running: true });
+
+    // 等同步完成（重传退避可能到 1.2s）
+    await sleep(2600);
+
+    var mi = master.info();
+    log('主控同步状态为已确认', mi.syncState === 'confirmed', 'syncState=' + mi.syncState);
+    log('被控收到了状态并应用', slaveApplied.length > 0, '应用 ' + slaveApplied.length + ' 次');
+    // 诊断输出：消息到底有没有到、到了为什么被丢
+    log('诊断：被控端收到的消息类型', diag.recv.length > 0, diag.recv.slice(0, 8).join(', ') || '(一条都没收到)');
+    log('诊断：被校验拦下的消息', diag.dropped.length === 0, diag.dropped.slice(0, 3).join(' | ') || '(无)');
+    var lastApplied = slaveApplied[slaveApplied.length - 1];
+    log('被控拿到的是完整波形（含断点）',
+      !!(lastApplied && lastApplied.ch && lastApplied.ch.A && lastApplied.ch.A.wave &&
+         lastApplied.ch.A.wave.channels.A.length === 2),
+      lastApplied && lastApplied.ch && lastApplied.ch.A && lastApplied.ch.A.wave
+        ? JSON.stringify(lastApplied.ch.A.wave.channels.A) : 'n/a');
+    log('强度按主控下发值应用',
+      !!(lastApplied && lastApplied.ch && Math.abs(lastApplied.ch.A.intensity - 0.8) < 1e-9),
+      lastApplied && lastApplied.ch ? String(lastApplied.ch.A.intensity) : 'n/a');
+    log('启停按主控下发值应用',
+      !!(lastApplied && lastApplied.running === true && lastApplied.ch.A.enabled === true));
+    log('被控回报了自身状态（ACK 捎带）', typeof mi.peerBle === 'string', 'peerBle=' + mi.peerBle);
+
+    // 改强度 → 应当再次同步
+    var revBefore = master.rev;
+    master.setState({ chan: { A: { intensity: 0.5 } } });
+    await sleep(1500);
+    log('改参数后版本号推进', master.rev > revBefore, revBefore + ' → ' + master.rev);
+    log('改参数后再次被确认', master.info().syncState === 'confirmed', master.info().syncState);
+    var latest = slaveApplied[slaveApplied.length - 1];
+    log('被控收到新强度', !!(latest && latest.ch && latest.ch.A.intensity === 0.5),
+      latest && latest.ch ? String(latest.ch.A.intensity) : 'n/a');
+
+    // 再次下发同一个波形 → 不应重传波形内容（省流量）
+    master.setState({ chan: { A: { intensity: 0.9 } } });
+    await sleep(900);
+    var sentWavesNow = master.lastSentWaves ? master.lastSentWaves.length : -1;
+    log('已确认过的波形不再重传（本次带 0 个波形）', sentWavesNow === 0, '带 ' + sentWavesNow + ' 个');
+
+    // ============================================================
+    head('四、安全：失联与断开必须停机（三条路径）');
+    // ============================================================
+    log('--- 路径 A：主控离开房间 ---', true, '');
+    var leftBefore = failsafe.length;
+    // ⚠ 这里要走**业务层**（_onBusiness）。
+    //   {t:'peer'} 是**传输层**消息（由服务器发来），在 Broadcast / Loopback 模式下
+    //   根本不存在"服务器"，所以 _onServerMsg 会把它当业务消息校验 → no-type 丢弃。
+    //   模拟"主控离开"应当直接投递业务层的离开通知。
+    slave._onBusiness({ t: 'peer', event: 'left' });
+    await sleep(60);
+    log('主控离开 → 被控触发停机', failsafe.length > leftBefore, '原因 ' + (failsafe[failsafe.length - 1] || '-'));
+
+    log('--- 路径 B：传输断开 ---', true, '');
+    var b = failsafe.length;
+    slave.closedByUs = false;
+    slave._onClosed('error');
+    await sleep(60);
+    log('传输断开 → 被控触发停机', failsafe.length > b, '原因 ' + (failsafe[failsafe.length - 1] || '-'));
+
+    log('--- 路径 C：心跳超时（8 秒）---', true, '');
+    // 重建一个被控，专门验证超时（把"最后收到消息的时刻"推到 9 秒前）
+    var slave2 = new Session({
+      role: 'slave', transport: 'loopback', room: 'test0002',
+      onFailSafeStop: function (r) { failsafe.push('slave2:' + r); }
+    });
+    slave2.conn = L.Loopback.pair()[1];
+    slave2.opened = true; slave2.peerOnline = true;
+    var now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    slave2.lastPeerMsgAt = now - 9000;          // 模拟 9 秒没收到主控任何消息
+    var c = failsafe.length;
+    slave2._tick();
+    await sleep(30);
+    log('静默 9 秒 → 触发心跳超时停机', failsafe.length > c, '原因 ' + (failsafe[failsafe.length - 1] || '-'));
+    log('停机原因正确标记为 heartbeat-timeout',
+      failsafe[failsafe.length - 1] === 'slave2:heartbeat-timeout', failsafe[failsafe.length - 1]);
+
+    // 清理
+    try { master.stop('test-done'); } catch (e) { }
+    try { slave.stop('test-done'); } catch (e) { }
+    try { slave2.stop('test-done'); } catch (e) { }
+    window.__testSessions = [];
+
+    // ============================================================
+    var pass = results.filter(function (r) { return r.ok; }).length;
+    var fail = results.length - pass;
+    var sum = document.getElementById('sum');
+    sum.style.display = '';
+    sum.className = fail ? 'fail' : 'pass';
+    sum.textContent = '自测结果：' + pass + ' / ' + results.length + ' 通过' + (fail ? '，' + fail + ' 失败' : '，全部通过 ✅');
+    if (fail) {
+      console.log('失败项：');
+      results.filter(function (r) { return !r.ok; }).forEach(function (r) {
+        console.log('  ❌ ' + r.name + '  ' + r.detail);
+      });
+    }
+    document.getElementById('btnRun').disabled = false;
+  }
+
+  document.getElementById('btnRun').onclick = function () {
+    this.disabled = true;
+    var self = this;
+    function finish(sumText, sumClass) {
+      var sum = document.getElementById('sum');
+      sum.style.display = '';
+      sum.className = sumClass;
+      sum.textContent = sumText;
+      self.disabled = false;
+    }
+    run().then(function () {
+      // run() 内部会自己算总结；这里只负责兜底恢复按钮与清理定时器
+      cleanup();
+    }).catch(function (e) {
+      log('自测过程抛出异常：' + (e && e.message || e), false, '');
+      cleanup();
+      var pass = results.filter(function (r) { return r.ok; }).length;
+      finish('自测中断：' + (e && e.message || e) + '（已完成 ' + pass + ' / ' + results.length + '）', 'fail');
+    });
+  };
+
+  // 无论成功失败都要停掉会话定时器，否则页面会一直有 50ms 定时器在跑
+  function cleanup() {
+    try {
+      if (window.__testSessions) {
+        window.__testSessions.forEach(function (s) { try { s.stop('selftest-done'); } catch (e) { } });
+        window.__testSessions = [];
+      }
+    } catch (e) { }
+  }
+  window.addEventListener('beforeunload', cleanup);
+})();
+</script>
+</body>
+</html>

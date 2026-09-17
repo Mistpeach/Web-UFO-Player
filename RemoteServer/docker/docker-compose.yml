@@ -1,0 +1,65 @@
+# ============================================================
+# UFO 远程控制中继 · docker compose
+#
+# 用法（在 docker/ 目录下执行）：
+#   docker compose up -d
+#   docker compose logs -f
+#   docker compose down
+#
+# 说明：
+#   · 只把端口绑到 127.0.0.1，公网访问仍然由宿主机的 Caddy / Nginx 终止 TLS 再转发进来。
+#     这样不会把明文端口暴露到公网。
+#   · config.json 与 logs/ 用卷挂载出去，重建容器不会丢日志与配置。
+#
+#   ⚠️ 用容器时不要把 8787 直接映射到 0.0.0.0，除非你已经在别处保证了 TLS。
+# ============================================================
+
+services:
+  ufo-remote:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ufo-remote-relay:latest
+    container_name: ufo-remote
+    restart: unless-stopped
+
+    # 只绑本机，由宿主机的反向代理访问
+    ports:
+      - "127.0.0.1:8787:8787"
+
+    volumes:
+      # 配置（不存在时会用镜像里的默认值；建议先在宿主机建好这个文件）
+      - ../config.json:/app/config.json:ro
+      # 日志（必须可写，否则服务起不来）
+      - ../logs:/app/logs
+
+    environment:
+      # 这些环境变量会覆盖 config.json 里的同名配置
+      UFO_HOST: "0.0.0.0"
+      UFO_PORT: "8787"
+      UFO_LOG_LEVEL: "info"
+      # 在反向代理后面必须让服务器信任 X-Forwarded-For，否则日志里记不到真实 IP
+      UFO_TRUST_PROXY: "true"
+
+    # 让容器能优雅停止（服务器会处理 SIGTERM，断开所有连接并写停止日志）
+    stop_grace_period: 10s
+
+    # 容器内自己检查健康
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 资源上限（个人使用给足即可）
+    deploy:
+      resources:
+        limits:
+          memory: 256M

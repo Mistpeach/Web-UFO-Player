@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>远程中继 网络诊断</title>
+<style>
+  body{margin:0;background:#0e0e16;color:#d8d8e0;font:13px/1.7 Consolas,"Courier New",monospace;padding:16px}
+  h1{font-size:16px;margin:0 0 10px;color:#e8e8f0}
+  .hint{color:#8890a8;font-size:12px;margin-bottom:12px;line-height:1.8}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input{background:#1a1a2e;border:1px solid #0f3460;color:#d8d8e0;padding:7px 10px;
+        border-radius:4px;font-family:inherit;font-size:13px;width:280px}
+  button{background:#1a1a2e;border:1px solid #0f3460;border-radius:5px;color:#d8d8e0;
+         font:12px/1 Consolas,monospace;padding:9px 13px;cursor:pointer;font-family:inherit}
+  button:hover{background:#22304d}
+  button.primary{background:#0f3460;border-color:#1a5a9a}
+  button.danger{background:#3a1a1a;border-color:#7a2a2a}
+  .stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px 18px;
+        background:#14141f;border:1px solid #23233a;border-radius:6px;padding:12px;margin-bottom:12px}
+  .stat div{display:flex;justify-content:space-between;gap:10px}
+  .k{color:#8890a8}.v{color:#e0e0f0}
+  .v.bad{color:#ff6b6b}.v.warn{color:#fbbf24}.v.ok{color:#4ade80}
+  pre{white-space:pre-wrap;background:#0a0a12;border:1px solid #23233a;border-radius:6px;
+      padding:12px;max-height:56vh;overflow:auto;font-size:12px;margin:0}
+</style>
+</head>
+<body>
+
+<h1>远程中继 网络诊断</h1>
+<div class="hint">
+  本页会用<b>两个真实会话</b>直连你的服务器：被控建房 → 主控加入 → 双方互发业务消息。<br>
+  它不会碰蓝牙，也不会驱动玩具，只测网络链路。跑完点「复制报告」发我。
+</div>
+
+<div class="bar">
+  <input id="inUrl" value="wss://rc.ufo.yumfish.cn" placeholder="服务器地址，如 wss://rc.ufo.yumfish.cn">
+  <button class="primary" id="btnRun">▶ 开始诊断</button>
+  <button id="btnHl">🩺 只看健康检查</button>
+  <button class="danger" id="btnClear">🗑 清空</button>
+  <button id="btnCopy">📋 复制报告</button>
+</div>
+
+<div class="stat" id="stats"></div>
+<pre id="log">（尚未开始）</pre>
+
+<script src="../WaveControler/js/format.js"></script>
+<script src="../WaveControler/js/protocol.js"></script>
+<script src="../WaveControler/js/link.js"></script>
+<script src="../WaveControler/js/clocksync.js"></script>
+<script src="../WaveControler/js/session.js"></script>
+<script>
+(function () {
+  'use strict';
+  var W = window.WC;
+  var $ = function (id) { return document.getElementById(id); };
+  var LOG = [], slave = null, master = null, health = null, t0 = 0;
+
+  function pad(n, w) { n = String(n); while (n.length < w) n = '0' + n; return n; }
+  function ts() {
+    var d = new Date();
+    return pad(d.getHours(), 2) + ':' + pad(d.getMinutes(), 2) + ':' + pad(d.getSeconds(), 2)
+      + '.' + pad(d.getMilliseconds(), 3);
+  }
+  function rec(kind, msg) {
+    var line = ts() + '  [' + kind + ']  ' + msg;
+    LOG.push(line);
+    render();
+  }
+  function render() {
+    var pre = $('log');
+    pre.textContent = LOG.length ? LOG.join('\n') : '（尚无记录）';
+    pre.scrollTop = pre.scrollHeight;
+    renderStats();
+  }
+  function renderStats() {
+    function row(k, v, cls) { return '<div><span class="k">' + k + '</span><span class="v ' + (cls || '') + '">' + v + '</span></div>'; }
+    var h = '';
+    h += row('服务器地址', $('inUrl').value || '（未填）', '');
+    h += row('规范化后的 URL', W.normWsUrl ? W.normWsUrl($('inUrl').value) : 'n/a', '');
+    if (health) {
+      h += row('健康检查', 'ok=' + health.ok + ' v' + health.version, health.ok ? 'ok' : 'bad');
+      h += row('服务端连接数', String(health.connections), health.connections > 0 ? 'ok' : 'warn');
+      h += row('服务端房间数', String(health.rooms), health.rooms > 0 ? 'ok' : 'warn');
+      h += row('msgsIn / msgsOut', health.counters.msgsIn + ' / ' + health.counters.msgsOut, '');
+      h += row('relays（转发次数）', String(health.counters.relays), health.counters.relays > 0 ? 'ok' : 'warn');
+      h += row('roomsCreated', String(health.counters.roomsCreated), health.counters.roomsCreated > 0 ? 'ok' : 'warn');
+      h += row('badMsgs / rateLimited', health.counters.badMsgs + ' / ' + health.counters.rateLimited, '');
+      h += row('uptime', health.uptimeSec + ' 秒', health.uptimeSec < 60 ? 'warn' : '');
+    } else {
+      h += row('健康检查', '未获取', 'warn');
+    }
+    var sl = slave ? slave.info() : null;
+    var ms = master ? master.info() : null;
+    h += row('被控会话', sl ? (sl.opened ? '已打开' : '未打开') + ' 房间=' + (sl.room || '—')
+             + ' peerOnline=' + sl.peerOnline : '未建立', sl && sl.opened ? 'ok' : 'bad');
+    h += row('被控 syncState', sl ? sl.syncState : '—', '');
+    h += row('主控会话', ms ? (ms.opened ? '已打开' : '未打开') + ' 房间=' + (ms.room || '—')
+             + ' peerOnline=' + ms.peerOnline : '未建立', ms && ms.opened ? 'ok' : 'bad');
+    h += row('主控 syncState', ms ? ms.syncState : '—',
+             ms && ms.syncState === 'confirmed' ? 'ok' : 'warn');
+    h += row('主控 rev / ackRev', ms ? (ms.rev + ' / ' + (slave ? slave.ackRev : '?')) : '—', '');
+    $('stats').innerHTML = h;
+  }
+
+  // ---- 抓取每一次 WebSocket 收发（这是最关键的证据）----
+  var origWS = window.WebSocket;
+  function tracedWS(url, protocols) {
+    var ws = protocols ? new origWS(url, protocols) : new origWS(url);
+    rec('WS', '→ 发起连接 ' + url);
+    ws.addEventListener('open', function () { rec('WS', '✅ 已连接 ' + url); renderStats(); });
+    ws.addEventListener('close', function (e) {
+      rec('WS', '❌ 连接关闭 code=' + e.code + ' reason=' + (e.reason || '') + ' wasClean=' + e.wasClean);
+      renderStats();
+    });
+    ws.addEventListener('error', function () { rec('WS', '⚠ 连接出错 ' + url); renderStats(); });
+    var origSend = ws.send.bind(ws);
+    ws.send = function (d) {
+      var t = (typeof d === 'string') ? d : '[binary]';
+      rec('TX', t.length > 300 ? (t.slice(0, 300) + '…(' + t.length + 'B)') : t);
+      return origSend(d);
+    };
+    ws.addEventListener('message', function (ev) {
+      var t = (typeof ev.data === 'string') ? ev.data : '[binary]';
+      rec('RX', t.length > 300 ? (t.slice(0, 300) + '…(' + t.length + 'B)') : t);
+    });
+    return ws;
+  }
+  window.WebSocket = tracedWS;
+
+  function fetchHealth(url) {
+    var m = String(url).match(/^(wss?|https?):\/\/([^\/]+)/i);
+    if (!m) return Promise.resolve(null);
+    var host = m[2];
+    return fetch('https://' + host + '/health', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { health = j; rec('HTTP', '健康检查 OK: connections=' + j.connections
+        + ' rooms=' + j.rooms + ' msgsIn=' + j.counters.msgsIn + ' relays=' + j.counters.relays
+        + ' uptime=' + j.uptimeSec + 's'); renderStats(); return j; })
+      .catch(function (e) { rec('HTTP', '健康检查失败: ' + (e && e.message || e)); renderStats(); return null; });
+  }
+
+  function mk(role, label, handlers, room) {
+    var opts = {
+      role: role, transport: 'websocket', url: $('inUrl').value.trim(), room: room || '',
+      onStatus: function (info) {
+        rec('status', label + '  opened=' + info.opened + ' room=' + (info.room || '—')
+          + ' peerOnline=' + info.peerOnline + ' sync=' + info.syncState
+          + ' error=' + (info.error || '—'));
+      },
+      onLog: function (lv, m) { rec('log:' + lv, label + ' ' + m); }
+    };
+    for (var k in handlers) { if (handlers.hasOwnProperty(k)) opts[k] = handlers[k]; }
+    return new W.Session(opts);
+  }
+
+  function run() {
+    LOG = [];
+    var url = $('inUrl').value.trim();
+    if (!url) { rec('error', '请先填服务器地址'); return; }
+    slave = null; master = null; health = null;
+    t0 = Date.now();
+    rec('info', '=== 开始诊断 ' + url + ' ===');
+
+    fetchHealth(url).then(function () {
+      // ① 被控建房
+      rec('info', '--- ① 被控建房 ---');
+      var gotRoom = null;
+      slave = mk(W.protocol.ROLE.SLAVE, '[被控]', {
+        onApplyState: function () { rec('applied', '[被控] 收到主控状态'); }
+      });
+      slave.start();
+      var h = slave.handlers;
+      var origStatus = h.onStatus;
+      h.onStatus = function (info) {
+        if (info.room && info.room !== gotRoom) {
+          gotRoom = info.room;
+          rec('info', '[被控] 拿到房间号 ' + info.room);
+        }
+        origStatus(info);
+      };
+      return wait(2000);
+    }).then(function () {
+      rec('info', '被控建完房：room=' + (slave.room || '（空）'));
+      rec('info', '--- ② 主控加入同一房间 ---');
+      var room = slave.room;
+      if (!room) { rec('error', '被控没拿到房间号，后续无法进行'); return null; }
+      // 房间号必须在**构造时**传入：Session.start() 的 _onOpen 会立刻用它发 join
+      master = mk(W.protocol.ROLE.MASTER, '[主控]', {
+        onPeerStop: function (r) { rec('peerStop', '[主控] 被控急停: ' + r); },
+        onPeerResume: function (r) { rec('peerResume', '[主控] 被控解锁: ' + r); }
+      }, room);
+      rec('info', '[主控] 准备加入房间 ' + room);
+      master.start();
+      return wait(2500);
+    }).then(function () {
+      if (!master) return null;
+      rec('info', '--- ③ 主控下发期望状态 ---');
+      master.setState({
+        chan: { A: { enabled: true, intensity: 1, phase: 0, waveKey: '' },
+                B: { enabled: false, intensity: 1, phase: 0, waveKey: '' } },
+        running: true
+      });
+      return wait(3000);
+    }).then(function () {
+      rec('info', '--- ④ 汇总 ---');
+      var sl = slave ? slave.info() : null;
+      var ms = master ? master.info() : null;
+      rec('info', '被控：opened=' + (sl && sl.opened) + ' room=' + (sl && sl.room)
+        + ' peerOnline=' + (sl && sl.peerOnline) + ' sync=' + (sl && sl.syncState)
+        + ' ackRev=' + (slave ? slave.ackRev : '?'));
+      rec('info', '主控：opened=' + (ms && ms.opened) + ' room=' + (ms && ms.room)
+        + ' peerOnline=' + (ms && ms.peerOnline) + ' sync=' + (ms && ms.syncState)
+        + ' rev=' + (ms && ms.rev) + ' lastSentRev=' + (master ? master.lastSentRev : '?')
+        + ' inflight=' + (master ? master.inflight : '?'));
+      var verdict = [];
+      if (ms && !ms.opened) verdict.push('主控会话没打开（WebSocket 没连上或没收到 joined）');
+      if (ms && ms.opened && !ms.peerOnline) verdict.push('主控连上了但服务端没告诉它"对端在线"（房间不匹配或对端不在）');
+      if (sl && !sl.peerOnline) verdict.push('被控那边也认为主控不在（peer joined 没收到）');
+      if (ms && ms.opened && ms.peerOnline && ms.syncState !== 'confirmed') verdict.push('双方都在线但状态同步不成功（业务消息没转达）');
+      rec('verdict', verdict.length ? verdict.join('；') : '链路看起来正常');
+      return fetchHealth($('inUrl').value.trim());
+    }).then(function () {
+      rec('info', '=== 诊断结束，用时 ' + Math.round((Date.now() - t0) / 1000) + ' 秒 ===');
+      render();
+    });
+  }
+
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function report() {
+    var head = '远程中继网络诊断报告\n生成时间: ' + ts() + '\n'
+      + '服务器: ' + $('inUrl').value + '\n'
+      + '规范化 URL: ' + (W.normWsUrl ? W.normWsUrl($('inUrl').value) : 'n/a') + '\n'
+      + 'User-Agent: ' + navigator.userAgent + '\n'
+      + '='.repeat(72) + '\n';
+    return head + LOG.join('\n');
+  }
+
+  $('btnRun').onclick = function () { run(); };
+  $('btnHl').onclick = function () {
+    rec('info', '--- 只做健康检查 ---');
+    fetchHealth($('inUrl').value.trim()).then(render);
+  };
+  $('btnClear').onclick = function () { LOG = []; render(); };
+  $('btnCopy').onclick = function () {
+    var t = report();
+    try {
+      navigator.clipboard.writeText(t).then(function () { rec('info', '已复制（' + LOG.length + ' 条）'); },
+        function () { fallback(t); });
+    } catch (e) { fallback(t); }
+  };
+  function fallback(t) {
+    var pre = $('log'); pre.textContent = t;
+    var r = document.createRange(); r.selectNodeContents(pre);
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    rec('info', '剪贴板不可用，已全选，请按 Ctrl+C');
+  }
+
+  render();
+  rec('info', '页面就绪。确认地址后点「开始诊断」');
+})();
+</script>
+</body>
+</html>

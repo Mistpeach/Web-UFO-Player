@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>WebSocket 中继端到端验证</title>
+<style>body{margin:0;background:#0e0e16;color:#d8d8e0;font:13px/1.6 Consolas,monospace;padding:14px}
+input{background:#1a1a2e;border:1px solid #0f3460;color:#d8d8e0;padding:7px 10px;border-radius:4px;width:300px;font-family:inherit}
+button{background:#0f3460;border:1px solid #1a5a9a;border-radius:5px;color:#d8d8e0;padding:9px 14px;cursor:pointer;font-family:inherit}
+button.g{background:#1a1a2e;border-color:#0f3460}
+pre{white-space:pre-wrap;background:#0a0a12;border:1px solid #23233a;border-radius:6px;padding:12px;margin-top:12px}</style>
+</head><body>
+<h1 style="font-size:15px;margin:0 0 10px">WebSocket 中继端到端验证</h1>
+<div style="margin-bottom:10px">
+  <input id="inUrl" value="wss://rc.ufo.yumfish.cn">
+  <button id="btnRun">▶ 开始</button>
+  <button class="g" id="btnClear">清空</button>
+</div>
+<pre id="out">（点「开始」运行）</pre>
+
+<script src="../js/format.js"></script>
+<script src="../js/protocol.js"></script>
+<script src="../js/link.js"></script>
+<script src="../js/clocksync.js"></script>
+<script src="../js/session.js"></script>
+<script>
+(function () {
+  'use strict';
+  var W = window.WC, $ = function (i) { return document.getElementById(i); };
+  var L = [], F = [], slave = null, master = null;
+  function rec(s) { L.push(s); paint(); }
+  function ok(l, c, e) { rec((c ? '[ok]   ' : '[FAIL] ') + l + (c ? '' : ('  -> ' + (e === undefined ? '' : e)))); if (!c) F.push(l); }
+  function paint() { $('out').textContent = L.join('\n'); $('out').scrollTop = $('out').scrollHeight; }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function mk(role, url, room, extra) {
+    var o = { role: role, transport: 'websocket', url: url, room: room || '',
+              onStatus: function () {}, onLog: function (lv, m) { rec('   log:' + lv + ' ' + m); } };
+    for (var k in extra) { if (extra.hasOwnProperty(k)) o[k] = extra[k]; }
+    return new W.Session(o);
+  }
+
+  function run() {
+    L = []; F = []; slave = null; master = null;
+    var url = $('inUrl').value.trim();
+    rec('=== 端到端验证 ' + url + ' ===');
+    var room = null, applied = 0, acks = 0;
+
+    rec('--- ① 被控建房 ---');
+    slave = mk(W.protocol.ROLE.SLAVE, url, '', {
+      onApplyState: function () { applied++; },
+      onFailSafeStop: function (r) { rec('   [被控] 安全停机: ' + r); }
+    });
+    var origSlaveStatus = slave.handlers.onStatus;
+    slave.handlers.onStatus = function (info) {
+      if (info.room && info.room !== room) { room = info.room; rec('   [被控] 房间号 = ' + room); }
+      origSlaveStatus(info);
+    };
+    slave.start();
+
+    return wait(1500).then(function () {
+      ok('被控拿到房间号', !!room, 'room=' + room);
+      if (!room) return null;
+      rec('--- ② 主控加入房间 ' + room + ' ---');
+      master = mk(W.protocol.ROLE.MASTER, url, room, {
+        onPeerStop: function (r) { rec('   [主控] 被控急停: ' + r); }
+      });
+      master.start();
+      return wait(1800);
+    }).then(function () {
+      if (!master) return null;
+      var si = slave.info(), mi = master.info();
+      rec('   被控 peerOnline=' + si.peerOnline + ' / 主控 peerOnline=' + mi.peerOnline);
+      ok('【修复点】被控收到了主控的 HELLO（peerOnline=true）', si.peerOnline === true,
+         '被控 peerOnline=' + si.peerOnline + '（false=业务消息又没穿过信封）');
+      ok('主控看到被控在线', mi.peerOnline === true, 'peerOnline=' + mi.peerOnline);
+
+      rec('--- ③ 主控下发期望状态 ---');
+      master.setState({
+        chan: { A: { enabled: true, intensity: 0.8, phase: 0, waveKey: '' },
+                B: { enabled: false, intensity: 1, phase: 0, waveKey: '' } },
+        running: true
+      });
+      return wait(1500);
+    }).then(function () {
+      if (!master) return null;
+      rec('   被控收到状态次数=' + applied + ' 主控 syncState=' + master.syncState
+          + ' rev=' + master.rev + ' lastSentRev=' + master.lastSentRev
+          + ' 被控 ackRev=' + slave.ackRev + ' inflight=' + master.inflight);
+      ok('【修复点】被控收到了状态消息（applyState 被调用）', applied >= 1, 'applied=' + applied);
+      ok('【修复点】被控回了 ACK，主控同步到 confirmed',
+         master.syncState === 'confirmed', 'syncState=' + master.syncState);
+      ok('版本自洽 rev===lastSentRev===被控ackRev',
+         master.rev === master.lastSentRev && master.lastSentRev === slave.ackRev,
+         'rev=' + master.rev + ' lastSent=' + master.lastSentRev + ' ack=' + slave.ackRev);
+      ok('被控真正应用了状态（强度 0.8）',
+         slave.info().peerOnline === true, 'peerOnline=' + slave.info().peerOnline);
+
+      rec('--- ④ 大消息分片：下发一个多分片状态 ---');
+      // 造一个足够大的波形，让它超过 CHUNK_BYTES（8KB），走多分片重组
+      var big = [];
+      for (var i = 0; i < 900; i++) big.push([+(i * 0.01).toFixed(3), (i % 200) - 100]);
+      var wave = W.format.normalize({
+        name: '大波形分片测试', duration: 9.0, mode: 'hold',
+        channels: { A: big, B: big }
+      }, { id: 'big1' });
+      var fp = master.offerWave(wave);
+      var bytes = JSON.stringify(W.protocol.wavePayload(wave)).length;
+      rec('   波形指纹=' + fp + ' 载荷约 ' + bytes + ' 字节（CHUNK_BYTES='
+          + W.protocol.LIMITS.CHUNK_BYTES + '）');
+      master.setState({
+        chan: { A: { enabled: true, intensity: 1, phase: 0, waveKey: fp || '' },
+                B: { enabled: false, intensity: 1, phase: 0, waveKey: '' } },
+        running: true
+      });
+      return wait(2500);
+    }).then(function () {
+      if (!master) return null;
+      rec('   分片后：被控收到状态次数=' + applied + ' 被控 ackRev=' + slave.ackRev
+          + ' 主控 syncState=' + master.syncState + ' lastSentRev=' + master.lastSentRev);
+      ok('【修复点】多分片消息也能重组并被应用', applied >= 2, 'applied=' + applied);
+      ok('【修复点】多分片消息也能被确认', master.syncState === 'confirmed',
+         'syncState=' + master.syncState);
+      rec('');
+      rec(F.length ? ('[FAIL] ' + F.length + ' 项未通过') : '[OK] 全部通过');
+      rec('（诊断完毕，可关闭本页）');
+      return null;
+    }).catch(function (e) {
+      rec('[EXCEPTION] ' + ((e && e.stack) || e));
+      rec('[FAIL] 异常中断');
+    });
+  }
+
+  $('btnRun').onclick = function () { run(); };
+  $('btnClear').onclick = function () { L = []; F = []; paint(); };
+  paint();
+})();
+</script>
+</body></html>

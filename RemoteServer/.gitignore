@@ -1,0 +1,13 @@
+# 运行期产生的文件，不要进版本库
+logs/
+*.log
+config.json
+
+# Node
+node_modules/
+npm-debug.log*
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+*.swp

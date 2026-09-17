@@ -1,0 +1,49 @@
+[Unit]
+Description=UFO Assistant Remote Relay (WebSocket room relay)
+Documentation=file:/opt/ufo-remote/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/ufo-remote
+
+# 只用系统 node 的绝对路径（systemd 不读你的 PATH，写 node 会找不到）
+ExecStart=/usr/bin/node /opt/ufo-remote/server.js
+
+# 进程挂了自动拉起
+Restart=always
+RestartSec=3
+
+# 日志进 journald，也可以同时看 logs/ 下的文件
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ufo-remote
+
+# ---------- 安全加固 ----------
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+# ProtectSystem=strict 会把整个文件系统挂成只读，
+# 只有这里列出的目录可写。所以 logs 目录必须存在且属主正确：
+#   sudo mkdir -p /opt/ufo-remote/logs
+#   sudo chown -R www-data:www-data /opt/ufo-remote/logs
+#   sudo chmod 644 /opt/ufo-remote/config.json
+ReadWritePaths=/opt/ufo-remote/logs
+
+# 资源限制（按需调整）
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
