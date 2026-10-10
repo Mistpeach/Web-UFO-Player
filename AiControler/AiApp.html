@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AI 控制器 v1.0</title>
+<link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="ai.css">
+</head>
+<body>
+<!--
+  ============================================================================
+  AI 控制器（AiControler）v1.0
+  ----------------------------------------------------------------------------
+  本页面的通用内核是**逐字节复制**过来的，不要在这里改它们（改了就对不上源文件）。
+  复制来源与 SHA-256（复制时刻，2026-09-18）：
+
+    style.css        ← style.css                            （仓库根，三处相同的共用样式）
+                       4db0c35ceecb868b642f149449df5d3a2c615de3d33d60599b6d45643c720968
+    presets.js       ← WaveControler/presets.js              7 个内置波形
+                       287952cc17fb7f3bb55344ea5c7b132ad1a18f492188ccd70e65efd5ffbac978
+    js/format.js     ← WaveControler/js/format.js            波形模型/采样/CSV·JSON
+                       2228435bb24626ce08a37a4bab834abd5170161d0f76873f76e0bbc2cf7ee43f
+    js/ble.js        ← WaveControler/js/ble.js               UFO-TW 蓝牙（与 ScriptPlayer 同协议）
+                       0a18abbce9dd4b40f3c3ff3052eb644e758c8b62109c9e67f4b2115319a4f806
+    js/engine.js     ← WaveControler/js/engine.js            50ms tick / 时间原点 / 急停归零
+                       b9f429a89d4048e46318824c4ec359aef432eafe4c307af4ff05b024885a7a51
+    js/scope.js      ← WaveControler/js/scope.js             示波器
+                       070833596d5dabf30499e6a9ae2a60473a1bf2af7a5b6c1b5b345d870155fb40
+    js/store.js      ← WaveControler/js/store.js             波形存储（本应用**只读** ufo.wave.*）
+                       79a3577783049bcf489f15a1c8569dfadabf8a911c96a6f3dca7f17fa21a6f08
+
+  ⚠ BLE 协议在三处各有一份实现，改协议必须同时改三处：
+       ScriptPlayer/app.js  /  WaveControler/js/ble.js  /  AiControler/js/ble.js
+     包格式 [0x05, enc(A), enc(B)]，enc(v) = v<0 ? ((~v+129)&0xFF) : (v&0xFF)
+
+  命名空间：复制来的通用模块用 window.WC（store.js 内部依赖 WC.format）；
+            本应用自己的代码用 window.AI。
+  数据：配置 ufo.ai.settings.v1 ｜ 角色 ufo.ai.role.* ｜ 波形 ufo.wave.*（只读）
+        API 密钥只存在本机 localStorage，只发给用户自己填写的接口地址。
+  ============================================================================
+-->
+
+<div id="toolbar">
+  <button id="btnBle">🔵 连接蓝牙</button>
+  <span id="bleLabel" class="badge off">未连接</span>
+  <button id="btnBleDisc" disabled title="断开蓝牙并立即归零">🔌 断开</button>
+  <button id="btnBleRe" title="重新连接（会弹出系统设备选择框，与 ScriptPlayer 的连接流程一致）">🔁 重连</button>
+  <button id="btnRole">🎭 角色</button>
+  <button id="btnSettings">⚙ 设置</button>
+  <button id="btnSide">🎛 手动控制</button>
+  <button id="btnDebug">🐞 调试</button>
+  <a class="gh-link gh-in-toolbar" href="https://github.com/Mistpeach/Web-UFO-Player" target="_blank" rel="noopener" title="GitHub 仓库（新标签页打开）" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a>
+</div>
+
+<div id="statusBar">
+  <span id="stWave">波形 —</span>
+  <span class="sep">·</span>
+  <span id="stOut">⏸ 未输出</span>
+  <span class="sep">·</span>
+  <span id="stBle">⚪ 未连接</span>
+  <span class="sep">·</span>
+  <span id="stAi">AI 控制 —</span>
+  <span class="sep">·</span>
+  <span id="stRole">角色 —</span>
+  <span class="sep">·</span>
+  <label id="aiSwitchWrap" title="关掉后 AI 仍可聊天，但它的控制不会作用到设备">
+    <input type="checkbox" id="chkAiControl" checked>允许 AI 控制
+  </label>
+</div>
+
+<div id="layout">
+  <main id="main">
+    <div id="chatScroll"><div id="chatList"></div></div>
+    <div id="composer">
+      <input id="chatInput" type="text" placeholder="说点什么…（回车发送）" autocomplete="off">
+      <button id="btnSend" class="primary">发送</button>
+      <button id="btnStopGen" disabled title="停止生成">⏹ 停</button>
+    </div>
+    <div id="composerHint">未连接蓝牙时也能聊天，但控制不会发到设备。</div>
+  </main>
+
+  <aside id="side" aria-hidden="true">
+    <div id="sideHead">
+      <span>🎛 手动控制</span>
+      <button id="sideClose" title="收起">✕ 收起</button>
+    </div>
+    <div id="sideBody">
+      <div class="sideCard">
+        <div class="sideRow">
+          <label>波形</label>
+          <select id="selWave"></select>
+          <button id="btnWaveRefresh" title="重新读取 WaveControler 里的波形">🔄</button>
+        </div>
+        <div class="sideRow">
+          <label>强度上限</label>
+          <input type="range" id="rngMax" min="0" max="100" step="1" value="50">
+          <span id="maxVal" class="mono">50%</span>
+        </div>
+        <div class="sideRow">
+          <label title="手动输出时用的强度，永远不会超过上面的上限">手动强度</label>
+          <input type="range" id="rngInt" min="0" max="100" step="1" value="100">
+          <span id="intVal" class="mono">100%</span>
+        </div>
+        <div class="sideRow">
+          <label>输出</label>
+          <label class="inline"><input type="checkbox" id="chkOut">开启</label>
+          <button id="btnTest" title="按波形周期完整试听 2 个周期">👂 试一下</button>
+          <button id="btnFlip" title="交换左右电机（与 ScriptPlayer 的开关一致）">🔀 交换左右</button>
+        </div>
+        <div class="sideHint" id="waveNote"></div>
+      </div>
+
+      <div class="sideCard">
+        <div class="sideRow">
+          <label>AI 可用波形</label>
+          <span id="waveCount" class="mono"></span>
+          <button id="btnReloadWaves" title="重新读取波形列表">🔄 读取</button>
+        </div>
+        <div class="sideHint">取消勾选 = AI 看不到也用不了。填了「AI 说明」会一起注入提示词（不会改动 WaveControler 里的数据）。</div>
+        <div id="waveList" class="waveList"></div>
+      </div>
+
+      <div class="sideCard">
+        <div class="sideHint">示波器（淡色 = 目标，亮色 = 实发）</div>
+        <div class="scopeWrap"><canvas id="scope-A"></canvas></div>
+        <div class="scopeWrap"><canvas id="scope-B"></canvas></div>
+      </div>
+
+      <div class="sideCard">
+        <div class="sideRow">
+          <button id="btnExport">📤 导出对话</button>
+          <button id="btnClear">🗑 清空对话</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <aside id="debugPanel" aria-hidden="true">
+    <div id="dbgHead">
+      <span>🐞 调试面板</span>
+      <button id="dbgClose" title="收起">✕ 收起</button>
+    </div>
+    <div id="dbgBody">
+      <div class="dbgRow">
+        <button id="dbgBtnScenario" title="按顺序跑一遍内置的假 AI 回复">▶ 跑一遍假 AI</button>
+        <button id="dbgBtnPrompt" title="看这一轮真正发出去的 system 提示词">📜 看提示词</button>
+        <button id="dbgBtnClear">🗑 清空日志</button>
+      </div>
+      <div id="dbgSummary"></div>
+      <div id="dbgLog"></div>
+    </div>
+  </aside>
+</div>
+
+<div id="stopBar">
+  <button id="btnStop" class="danger" title="防误触：0.8 秒内连点两次才会立即归零">⏹ 急 停（连点两次）</button>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<!-- ==================== 设置 ==================== -->
+<div id="cfgModal" role="dialog" aria-modal="true">
+  <div id="cfgBox">
+    <div class="mHead"><span>⚙ 设置</span><button class="mX" id="cfgClose">✕ 关闭</button></div>
+    <div class="mTabs">
+      <div class="mTab on" data-tab="api">🔌 接口</div>
+      <div class="mTab" data-tab="safety">🛡 安全</div>
+      <div class="mTab" data-tab="ui">🎛 界面与数据</div>
+    </div>
+    <div class="mBody">
+      <!-- 接口 -->
+      <div class="mPane on" data-pane="api">
+        <div class="fRow"><label>接口地址（不含 /chat/completions）</label>
+          <input id="fBaseUrl" type="text" placeholder="https://api.deepseek.com/v1"></div>
+        <div class="fRow"><label>路径</label>
+          <input id="fPath" type="text" placeholder="/chat/completions"></div>
+        <div class="fRow"><label>API 密钥</label>
+          <input id="fApiKey" type="password" placeholder="sk-…">
+          <label class="inline"><input type="checkbox" id="fShowKey">显示</label></div>
+        <div class="fRow"><label>模型</label>
+          <input id="fModel" type="text" placeholder="deepseek-chat"></div>
+        <div class="fRow"><label>请求头名称 / 前缀</label>
+          <input id="fAuthHeader" type="text" placeholder="Authorization">
+          <input id="fAuthScheme" type="text" placeholder="Bearer（留空则不加前缀）"></div>
+        <div class="fGrid">
+          <div class="fRow"><label>temperature</label><input id="fTemp" type="text" placeholder="0.9"></div>
+          <div class="fRow"><label>max_tokens</label><input id="fMaxTok" type="text" placeholder="800"></div>
+          <div class="fRow"><label>top_p</label><input id="fTopP" type="text" placeholder="留空则不发"></div>
+          <div class="fRow"><label>超时（毫秒）</label><input id="fTimeout" type="text" placeholder="60000"></div>
+        </div>
+        <div class="fRow"><label class="inline"><input type="checkbox" id="fStream">流式输出（打字机效果）</label></div>
+        <details class="fAdv">
+          <summary>高级：自定义头 / 参数 / 取值路径（接非 OpenAI 家的服务时用）</summary>
+          <div class="fRow"><label>追加请求头（JSON）</label><textarea id="fHeaders" rows="3" placeholder='{"x-api-key":"…"}'></textarea></div>
+          <div class="fRow"><label>追加 URL 参数（JSON）</label><textarea id="fQuery" rows="2" placeholder='{"api-version":"2024-02-01"}'></textarea></div>
+          <div class="fRow"><label>追加请求体字段（JSON）</label><textarea id="fBodyExtra" rows="2" placeholder='{"frequency_penalty":0.2}'></textarea></div>
+          <div class="fRow"><label>非流式取文本路径</label><input id="fRespPath" type="text" placeholder="choices.0.message.content"></div>
+          <div class="fRow"><label>流式取增量路径</label><input id="fDeltaPath" type="text" placeholder="choices.0.delta.content"></div>
+        </details>
+        <div class="fRow">
+          <button id="cfgTest">🔍 测试连接</button>
+          <span id="cfgTestOut" class="testOut"></span>
+        </div>
+        <div class="sideHint">密钥只保存在本机浏览器里，只会发给你填的这个地址；本页面不会把它发给任何第三方。</div>
+      </div>
+
+      <!-- 安全 -->
+      <div class="mPane" data-pane="safety">
+        <div class="fRow"><label>我的最大强度</label>
+          <input type="range" id="fMax" min="0" max="100" step="1" value="50">
+          <span id="fMaxVal" class="mono">50%</span></div>
+        <div class="sideHint">实际输出 = AI 给的比率 × 这个上限。AI 永远无法超过它。</div>
+        <div class="fRow"><label class="inline"><input type="checkbox" id="fAiCtl">允许 AI 控制输出</label></div>
+        <div class="sideHint">关掉后 AI 仍然可以聊天，但它的控制只会显示、不会执行。</div>
+        <div class="fRow"><label class="inline"><input type="checkbox" id="fKeepRun">等待 AI 回复期间保持当前动作</label></div>
+        <div class="sideHint">推荐开启：否则每一轮对话都会中断动作，体感很割裂。</div>
+        <div class="fRow"><button id="btnEmergencyFromCfg" class="danger">⛔ 立即急停并归零</button></div>
+      </div>
+
+      <!-- 界面与数据 -->
+      <div class="mPane" data-pane="ui">
+        <div class="fRow"><label>送给模型的历史轮数</label>
+          <input id="fHistory" type="text" placeholder="20"></div>
+        <div class="fRow"><label class="inline"><input type="checkbox" id="fShowDebug">开机显示调试面板</label></div>
+        <div class="fRow">
+          <button id="btnExport2">📤 导出对话</button>
+          <button id="btnClear2">🗑 清空对话</button>
+        </div>
+        <div class="fRow"><button id="btnResetCfg" class="danger">↺ 恢复默认配置</button></div>
+        <div class="sideHint">配置与角色卡都存在浏览器本地（localStorage）。清除浏览器数据 / 换域名 / 无痕模式都会导致它们丢失。</div>
+      </div>
+    </div>
+    <div class="mFoot">
+      <button id="cfgClose2">取消</button>
+      <button id="cfgSave" class="primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 角色 ==================== -->
+<div id="roleModal" role="dialog" aria-modal="true">
+  <div id="roleBox">
+    <div class="mHead"><span>🎭 角色</span><button class="mX" id="roleClose">✕ 关闭</button></div>
+    <div id="roleWrap">
+      <div id="roleList"></div>
+      <div id="roleEdit">
+        <div class="fRow"><label>名称</label><input id="rName" type="text" placeholder="角色名（≤40 字）">
+          <input id="rEmoji" type="text" class="emoji" placeholder="🙂"></div>
+        <div class="fRow"><label>背景设定</label><textarea id="rBackground" rows="4"></textarea></div>
+        <div class="fRow"><label>你扮演</label><textarea id="rAiRole" rows="4"></textarea></div>
+        <div class="fRow"><label>用户扮演</label><textarea id="rUserRole" rows="3"></textarea></div>
+        <div class="fRow"><label>补充信息与边界</label><textarea id="rExtra" rows="6"></textarea></div>
+        <div class="fRow"><label>偏好波形（可选，用顿号分隔）</label><input id="rWaveHint" type="text" placeholder="心跳（双跳）、慢爬升 10s"></div>
+        <div class="fRow">
+          <button id="rSave" class="primary">💾 保存</button>
+          <button id="rDup">📄 另存副本</button>
+          <button id="rUse">✅ 用这个角色</button>
+          <button id="rDel" class="danger">🗑 删除</button>
+        </div>
+        <div class="sideHint" id="rState"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 统一确认 / 提示 ==================== -->
+<div id="askModal" role="dialog" aria-modal="true">
+  <div id="askBox">
+    <div class="mHead"><span id="askTitle">请确认</span></div>
+    <div class="mBody"><div id="askText"></div></div>
+    <div class="mFoot"><button id="askCancel">取消</button><button id="askOk" class="primary">确定</button></div>
+  </div>
+</div>
+
+<div id="infoModal" role="dialog" aria-modal="true">
+  <div id="infoBox">
+    <div class="mHead"><span id="infoTitle">提示</span></div>
+    <div class="mBody" id="infoBody"></div>
+    <div class="mFoot"><button id="infoOk" class="primary">知道了</button></div>
+  </div>
+</div>
+
+<script src="presets.js"></script>
+<script src="js/format.js"></script>
+<script src="js/ble.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/scope.js"></script>
+<script src="js/store.js"></script>
+<script src="js/ctrlproto.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/rolestore.js"></script>
+<script src="roles-preset.js"></script>
+<script src="js/prompt.js"></script>
+<script src="js/llm.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
