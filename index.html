@@ -19,7 +19,7 @@
   /* ---------- 弹窗通用骨架（二级菜单 + 教程共用，避免重复样式） ---------- */
   .ovl { position: fixed; inset: 0; background: rgba(0,0,0,0.75); align-items: center; justify-content: center; padding: 16px; }
   /* 必须用 id 选择器：style.css 里有 #tutorialOverlay{display:flex}，类选择器压不住它 */
-  #menuOverlay, #waveMenuOverlay, #tutorialOverlay, #waveTutorialOverlay { display: none; }
+  #menuOverlay, #waveMenuOverlay, #tutorialOverlay, #waveTutorialOverlay, #noticeOverlay { display: none; }
   .mbox { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; text-align: left; overflow: hidden; }
   .mhead { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #0f3460; font-size: 15px; color: #e0e0e0; }
   .mhead button { background: none; border: none; color: #aaa; font-size: 20px; line-height: 1; cursor: pointer; }
@@ -39,6 +39,16 @@
   /* 教程弹窗 */
   #tutorialOverlay, #waveTutorialOverlay { z-index: 999; }
   #tutorialBox, #waveTutorialBox { max-width: 620px; }
+
+  /* 进入主页面的声明弹窗（层级最高，压住所有其它弹窗） */
+  #noticeOverlay { z-index: 1000; }
+  #noticeBox { max-width: 560px; border-color: #7f2d3b; }
+  #noticeBox .mhead { border-bottom-color: #7f2d3b; }
+  #noticeBox .mhead span { color: #ff6b6b; font-weight: 600; }
+  #noticeBox .mcontent b { color: #ff9d9d; }
+  #noticeBox .mcontent a { color: #a78bfa; }
+  #noticeActions { padding: 0 16px 16px; display: flex; justify-content: flex-end; }
+  #noticeActions .menu-item { flex: 0 0 auto; justify-content: center; }
   .mcontent { padding: 16px; overflow-y: auto; font-size: 13px; line-height: 1.7; color: #c0c0c0; }
   .mcontent h4 { margin-top: 16px; color: #a78bfa; }
   .mcontent ul { padding-left: 20px; }
@@ -61,6 +71,25 @@
 
   <div class="btn-group" style="margin-top: 12px;">
     <a href="donate.html" class="btn-hero">💖 支持作者</a>
+  </div>
+</div>
+
+<!-- 进入主页面即弹出的侵权声明（点击遮罩 / Esc / 按钮均可关闭） -->
+<div id="noticeOverlay" class="ovl" role="dialog" aria-modal="true" aria-labelledby="noticeTitle" onclick="if(event.target===this)hideNotice()">
+  <div id="noticeBox" class="mbox">
+    <div class="mhead">
+      <span id="noticeTitle">⚠️ 声明</span>
+      <button onclick="hideNotice()" title="关闭（Esc）">&times;</button>
+    </div>
+    <div class="mcontent">
+      <p>此项目配套硬件成品在<b>闲鱼平台遭到侵权倒卖</b>，本人<b>从未对任何人做出商用授权</b>！</p>
+      <p style="margin-top: 12px;">详情请看：<a href="https://bbs.viva-la-vita.org/d/80398" target="_blank" rel="noopener">https://bbs.viva-la-vita.org/d/80398</a></p>
+      <p style="margin-top: 12px;"><b>如果你在其他人手里买到这个成品，说明你被骗了！！！！</b></p>
+      <p style="margin-top: 12px;">我在闲鱼只有（<b>YumFish</b>）这一个账号，该项目成品仅在快团团（<b>香辣芭乐</b>）和闲鱼（<b>YumFish</b>）进行过合法售卖，<b>其他渠道得到的商业成品均为侵权！！！</b></p>
+    </div>
+    <div id="noticeActions">
+      <button class="menu-item primary" onclick="hideNotice()">我已知晓</button>
+    </div>
   </div>
 </div>
 
@@ -238,11 +267,19 @@
   function hideWaveTutorial() { document.getElementById('waveTutorialOverlay').style.display = 'none'; }
   function openWaveTutorialFromMenu() { hideWaveMenu(); showWaveTutorial(); }
 
+  // 进入主页面即弹出的侵权声明
+  function showNotice() { document.getElementById('noticeOverlay').style.display = 'flex'; }
+  function hideNotice() { document.getElementById('noticeOverlay').style.display = 'none'; }
+
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     hideTutorial(); hideMenu();
     hideWaveTutorial(); hideWaveMenu();
+    hideNotice();
   });
+
+  // 进入导航主页面的第一时间弹出声明
+  showNotice();
 </script>
 
 </body>
