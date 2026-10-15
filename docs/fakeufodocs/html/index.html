@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="fakeUFO 教程">
+<title>0.写在前面</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23533483'/%3E%3Cpath d='M16 6c-3.3 0-6 2.7-6 6v6c0 3.3 2.7 6 6 6s6-2.7 6-6v-6c0-3.3-2.7-6-6-6zm0 3.2A2.8 2.8 0 0 1 18.8 12v6A2.8 2.8 0 0 1 16 20.8 2.8 2.8 0 0 1 13.2 18v-6A2.8 2.8 0 0 1 16 9.2z' fill='%23e9d5ff'/%3E%3C/svg%3E">
+<style>
+
+*, *::before, *::after { box-sizing: border-box; }
+:root{
+  --bg:#1a1a2e; --panel:#16213e; --line:#0f3460; --line-soft:#22304d;
+  --text:#e0e0e0; --text-dim:#a8a8bd; --muted:#888; --faint:#666;
+  --accent:#a78bfa; --accent-2:#a855f7; --violet:#533483;
+  --grad:linear-gradient(135deg,#533483,#a855f7);
+  --code-bg:#131322;
+  --sbw:302px; --topbar:56px;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',
+         'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+}
+html,body{ height:100%; }
+body{
+  margin:0; font-family:var(--font); background:var(--bg); color:var(--text);
+  display:flex; flex-direction:column; height:100vh; height:100dvh; overflow:hidden;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+::selection{ background:rgba(168,85,247,.35); color:#fff; }
+a{ color:var(--accent); }
+
+/* ---------- 顶栏 ---------- */
+#topbar{
+  position:relative; z-index:50; flex:0 0 auto;
+  display:flex; align-items:center; gap:10px; height:var(--topbar);
+  padding:0 14px;
+  padding-left:calc(14px + env(safe-area-inset-left));
+  padding-right:calc(14px + env(safe-area-inset-right));
+  background:var(--panel); border-bottom:1px solid var(--line);
+}
+.spacer{ flex:1 1 auto; min-width:0; }
+.doc-label{
+  color:#fff; font-size:14.5px; font-weight:600; text-decoration:none;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:52vw;
+}
+.doc-label:hover{ color:var(--accent); }
+.icon-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  flex:0 0 auto; width:32px; height:32px; padding:0;
+  border:1px solid var(--line); border-radius:6px;
+  background:var(--bg); color:var(--text); cursor:pointer; text-decoration:none;
+  transition:background .2s ease,color .2s ease,border-color .2s ease;
+}
+.icon-btn:hover{ background:var(--line); color:#fff; }
+.icon-btn:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.icon-btn svg{ width:18px; height:18px; display:block; }
+#progress{
+  position:absolute; left:0; bottom:-1px; height:2px; width:0;
+  background:var(--grad); z-index:2; transition:width .08s linear;
+}
+
+/* ---------- 布局 ---------- */
+#layout{ display:flex; flex:1 1 auto; min-height:0; position:relative; }
+#sidebar{
+  flex:0 0 var(--sbw); width:var(--sbw); min-width:0;
+  display:flex; flex-direction:column; overflow:hidden;
+  background:var(--panel); border-right:1px solid var(--line);
+}
+#sidebar.collapsed{ display:none; }
+#sbHeader{
+  display:none; align-items:center; gap:8px; flex:0 0 auto;
+  height:var(--topbar); padding:0 12px; border-bottom:1px solid var(--line);
+}
+#navScroll{
+  flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden;
+  padding:10px 8px 44px; overscroll-behavior:contain;
+  scrollbar-width:thin; scrollbar-color:#243254 transparent;
+}
+#navScroll::-webkit-scrollbar{ width:10px; }
+#navScroll::-webkit-scrollbar-thumb{ background:#243254; border-radius:6px; }
+#navScroll::-webkit-scrollbar-thumb:hover{ background:#2f4570; }
+#navScroll::-webkit-scrollbar-track{ background:transparent; }
+
+/* ---------- 导航树 ---------- */
+#nav{ list-style:none; margin:0; padding:0; font-size:13.5px; }
+#nav ul{ list-style:none; margin:0; padding:0; }
+.nav-sub{ position:relative; padding-left:10px; }
+.nav-sub::before{
+  content:""; position:absolute; left:5px; top:0; bottom:2px; width:1px;
+  background:var(--line);
+}
+.nav-item > .nav-sub{ display:none; }
+.nav-item.open > .nav-sub{ display:block; }
+.nav-row{ display:flex; align-items:flex-start; gap:2px; margin:1px 0; }
+.nav-link{
+  flex:1 1 auto; min-width:0; display:block; padding:6px 4px 6px 9px;
+  border-left:2px solid transparent; border-radius:6px;
+  color:var(--text-dim); text-decoration:none; line-height:1.45;
+  overflow-wrap:break-word;
+  transition:background .15s ease,color .15s ease;
+}
+.nav-link:hover{ background:rgba(15,52,96,.55); color:#fff; }
+.nav-link.active{
+  background:linear-gradient(90deg,rgba(83,52,131,.62),rgba(168,85,247,.14));
+  color:#fff; border-left-color:var(--accent); font-weight:600;
+}
+.nav-caret{
+  flex:0 0 auto; width:24px; height:26px; margin:1px 1px 0 0; padding:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:none; border:0; border-radius:5px; cursor:pointer;
+}
+.nav-caret:hover{ background:rgba(15,52,96,.7); }
+.nav-caret:focus-visible{ outline:2px solid var(--accent); outline-offset:-2px; }
+.nav-caret i{
+  display:block; width:6px; height:6px; margin-top:-3px;
+  border-right:1.5px solid #8e8ea8; border-bottom:1.5px solid #8e8ea8;
+  transform:rotate(-45deg); transition:transform .2s ease;
+}
+.nav-item.open > .nav-row .nav-caret i{ transform:rotate(45deg); margin-top:-1px; }
+.nav-sub .nav-link{ font-size:13px; }
+.nav-sub .nav-sub .nav-link{ font-size:12.5px; }
+.nav-sub .nav-sub .nav-sub .nav-link{ font-size:12px; }
+
+/* ---------- 内容区 ---------- */
+#content{
+  flex:1 1 auto; min-width:0; overflow-y:auto; overscroll-behavior:contain;
+  scroll-behavior:smooth; scrollbar-width:thin; scrollbar-color:#243254 transparent;
+}
+#content::-webkit-scrollbar{ width:12px; }
+#content::-webkit-scrollbar-thumb{ background:#243254; border-radius:6px; }
+#content::-webkit-scrollbar-thumb:hover{ background:#2f4570; }
+#doc{
+  max-width:900px; margin:0 auto; padding:30px 30px 100px;
+  font-size:15.5px; line-height:1.9; color:#dcdce8;
+}
+.sec, .doc-h{ scroll-margin-top:18px; }
+.sec.lvl1{ margin-top:46px; padding-top:28px; border-top:1px solid var(--line); }
+.sec.lvl1:first-of-type{ margin-top:0; padding-top:0; border-top:0; }
+.sec.lvl2{ margin-top:32px; }
+.sec.lvl3{ margin-top:24px; }
+.sec.lvl4{ margin-top:20px; }
+.doc-h{ margin:0; font-weight:700; line-height:1.45; }
+.doc-h.lvl1{
+  font-size:1.6rem; color:#fff; letter-spacing:.3px;
+  padding-bottom:10px; border-bottom:1px solid var(--line);
+}
+.doc-h.lvl2{
+  font-size:1.24rem; color:#ecebff;
+  padding-left:12px; border-left:3px solid var(--violet);
+}
+.doc-h.lvl3{
+  font-size:1.08rem; color:#dad4ff;
+  padding-left:12px; border-left:2px solid #2a4a7f;
+}
+.doc-h.lvl4{
+  font-size:1rem; color:#c8beff;
+  padding-left:12px; border-left:2px solid var(--line-soft);
+}
+.hnum{ color:var(--accent); font-weight:800; font-variant-numeric:tabular-nums; }
+.hnum-tight{ margin-right:.34em; }
+
+.blk{ margin:0 0 14px; }
+.sec > .blk:last-child{ margin-bottom:0; }
+.ln{ margin:0; white-space:pre-wrap; overflow-wrap:break-word; }
+.ln-bullet{ padding-left:1.5em; text-indent:-1.5em; }
+.sec > .blk:first-of-type{ margin-top:12px; }
+.doc-h + .blk{ margin-top:12px; }
+
+/* ---------- 图片 ---------- */
+.fig{
+  margin:14px 0; display:flex; flex-wrap:wrap; gap:12px;
+  align-items:flex-start; justify-content:center;
+}
+.doc-img{
+  display:block; max-width:100%; height:auto; border-radius:8px;
+  border:1px solid var(--line); background:#101020; cursor:zoom-in;
+  box-shadow:0 6px 22px rgba(0,0,0,.38);
+  transition:border-color .2s ease,box-shadow .2s ease;
+}
+.doc-img:hover{ border-color:var(--violet); box-shadow:0 8px 28px rgba(83,52,131,.45); }
+.doc-img-inline{ display:inline-block; vertical-align:middle; margin:8px 4px; }
+
+/* ---------- 富文本（本文档暂无，样式先备好） ---------- */
+#doc a{
+  color:var(--accent); text-decoration:underline;
+  text-decoration-color:rgba(167,139,250,.4); text-underline-offset:3px;
+  overflow-wrap:anywhere;
+}
+#doc a:hover{ color:#c4b5fd; text-decoration-color:#c4b5fd; }
+blockquote{
+  margin:14px 0; padding:10px 16px; color:#c9c9dd;
+  border-left:3px solid var(--violet); border-radius:0 6px 6px 0;
+  background:rgba(15,52,96,.35);
+}
+blockquote p{ margin:0; }
+code{
+  font-family:var(--mono); font-size:.9em; color:var(--accent);
+  background:var(--code-bg); border:1px solid var(--line-soft);
+  padding:1px 5px; border-radius:4px;
+}
+pre{
+  margin:14px 0; padding:14px 16px; overflow:auto;
+  background:var(--code-bg); border:1px solid var(--line-soft); border-radius:8px;
+}
+pre code{ background:none; border:0; padding:0; color:#c9d6f5; font-size:13px; line-height:1.7; }
+table{ width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; }
+th,td{ border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; }
+th{ background:var(--panel); color:#fff; font-weight:600; }
+tr:nth-child(even) td{ background:rgba(15,52,96,.28); }
+hr{ border:0; border-top:1px solid var(--line); margin:24px 0; }
+
+/* ---------- 浮层 ---------- */
+#backdrop{
+  position:fixed; inset:0; z-index:55; background:rgba(0,0,0,.55);
+  opacity:0; visibility:hidden; pointer-events:none;
+  transition:opacity .25s ease,visibility 0s linear .25s;
+}
+#backdrop.open{
+  opacity:1; visibility:visible; pointer-events:auto;
+  transition:opacity .25s ease,visibility 0s linear 0s;
+}
+#lightbox{
+  position:fixed; inset:0; z-index:200; padding:24px; display:none;
+  align-items:center; justify-content:center; cursor:zoom-out;
+  background:rgba(6,6,14,.93);
+}
+#lightbox.open{ display:flex; }
+#lightbox img{
+  max-width:100%; max-height:100%; border-radius:6px;
+  box-shadow:0 12px 60px rgba(0,0,0,.8);
+}
+#toTop{
+  position:fixed; z-index:80; width:38px; height:38px;
+  right:calc(18px + env(safe-area-inset-right));
+  bottom:calc(18px + env(safe-area-inset-bottom));
+  background:var(--panel); box-shadow:0 6px 20px rgba(0,0,0,.45);
+  opacity:0; visibility:hidden; transform:translateY(8px);
+  transition:opacity .2s ease,transform .2s ease,visibility 0s linear .2s;
+}
+#toTop.show{
+  opacity:1; visibility:visible; transform:none;
+  transition:opacity .2s ease,transform .2s ease,visibility 0s linear 0s;
+}
+
+/* ---------- 窄屏 ---------- */
+@media (min-width:1024px){ #backdrop{ display:none !important; } }
+@media (max-width:1023px){
+  #sidebar{
+    position:fixed; top:0; left:0; bottom:0; z-index:60;
+    width:min(312px,86vw); flex:none;
+    padding-left:env(safe-area-inset-left);
+    transform:translateX(-100%); visibility:hidden; pointer-events:none;
+    box-shadow:2px 0 14px rgba(0,0,0,.5);
+    transition:transform .25s ease,visibility 0s linear .25s;
+  }
+  #sidebar.open{
+    transform:none; visibility:visible; pointer-events:auto;
+    transition:transform .25s ease,visibility 0s linear 0s;
+  }
+  #sidebar.collapsed{ display:flex; }
+  #sbHeader{ display:flex; }
+  #doc{ padding:20px 16px 84px; font-size:15px; }
+  .doc-h.lvl1{ font-size:1.4rem; }
+  .doc-h.lvl2{ font-size:1.16rem; }
+  .doc-label{ max-width:44vw; font-size:14px; }
+}
+@media (max-width:480px){
+  #topbar{ padding:0 10px; gap:8px; }
+  #doc{ padding:16px 13px 72px; }
+  .doc-h.lvl3{ font-size:1.04rem; }
+  .nav-link{ padding:7px 4px 7px 8px; }
+}
+@media (min-width:1024px) and (max-width:1199px){
+  :root{ --sbw:266px; }
+}
+
+/* ---------- 打印 ---------- */
+@media print{
+  body{ display:block; height:auto; overflow:visible; background:#fff; color:#111; }
+  #topbar,#sidebar,#backdrop,#toTop,#lightbox,#progress{ display:none !important; }
+  #layout{ display:block; }
+  #content{ overflow:visible; height:auto; }
+  #doc{ max-width:none; padding:0; color:#111; font-size:12pt; line-height:1.7; }
+  .sec.lvl1{ border-top-color:#ccc; }
+  .doc-h.lvl1,.doc-h.lvl2,.doc-h.lvl3,.doc-h.lvl4{ color:#111; border-color:#ccc; }
+  .hnum{ color:#6b21a8; }
+  .ln{ color:#111; }
+  #doc a{ color:#5b21b6; }
+  .doc-img{ border-color:#ccc; box-shadow:none; cursor:default; }
+  .sec,.doc-h{ scroll-margin-top:0; }
+}
+
+</style>
+</head>
+<body>
+
+<header id="topbar">
+  <button id="navBtn" class="icon-btn" type="button" aria-expanded="true" aria-label="显示或隐藏目录">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
+  <a class="doc-label" href="#top" title="0.写在前面">0.写在前面</a>
+  <span class="spacer"></span>
+  <a class="icon-btn" href="https://github.com/Mistpeach/Web-UFO-Player" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库" title="GitHub">
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+  </a>
+  <div id="progress"></div>
+</header>
+
+<div id="layout">
+  <aside id="sidebar">
+    <div id="sbHeader">
+      <a class="doc-label" href="#top">0.写在前面</a>
+      <span class="spacer"></span>
+      <button id="sbClose" class="icon-btn" type="button" aria-label="关闭目录">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div id="navScroll">
+      <ul id="nav"><li class="nav-item open" data-lvl="1"><div class="nav-row"><a class="nav-link" href="#sec-0">0.写在前面</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-0-1">0.1前言</a></div></li><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-0-2">0.2 相关链接：</a></div></li></ul></li><li class="nav-item open" data-lvl="1"><div class="nav-row"><a class="nav-link" href="#sec-1">1.所需工具</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-1-1">1.1 电烙铁</a></div></li><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-1-2">1.2 焊锡丝</a></div></li><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-1-3">1.3 电脑</a></div></li><li class="nav-item open" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-1-4">1.4 可选的工具</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-1-4-1">1.4.1 助焊剂</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-1-4-2">1.4.2 夹具</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-1-4-3">1.4.3 高温海绵</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-1-4-4">1.4.4 口罩</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-1-4-5">1.4.5 水口钳、斜口钳</a></div></li></ul></li><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-1-5">1.5 如何白嫖工具？</a></div></li></ul></li><li class="nav-item open" data-lvl="1"><div class="nav-row"><a class="nav-link" href="#sec-2">2.所需材料</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-2-1">2.1 必须购买的元器件材料</a></div></li><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-2-2">2.2 排母</a></div></li><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-2-3">2.3 可选材料</a></div></li><li class="nav-item open" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-2-4">2.4 需要下单定制的材料</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item open" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-2-4-1">2.4.1 PCB电路板</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item" data-lvl="4"><div class="nav-row"><a class="nav-link" href="#sec-2-4-1-1">2.4.1.1 登录或注册</a></div></li><li class="nav-item" data-lvl="4"><div class="nav-row"><a class="nav-link" href="#sec-2-4-1-2">2.4.1.2 参加考试</a></div></li><li class="nav-item" data-lvl="4"><div class="nav-row"><a class="nav-link" href="#sec-2-4-1-3">2.4.1.3 领取优惠券</a></div></li><li class="nav-item" data-lvl="4"><div class="nav-row"><a class="nav-link" href="#sec-2-4-1-4">2.4.1.4 打开pcb工程并进行下单</a></div></li><li class="nav-item" data-lvl="4"><div class="nav-row"><a class="nav-link" href="#sec-2-4-1-5">2.4.1.5 修改pcb生产参数</a></div></li><li class="nav-item" data-lvl="4"><div class="nav-row"><a class="nav-link" href="#sec-2-4-1-6">2.4.1.6 选择优惠券并下单</a></div></li></ul></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-2-4-2">2.4.2 3d打印外壳</a></div></li></ul></li></ul></li><li class="nav-item open" data-lvl="1"><div class="nav-row"><a class="nav-link" href="#sec-3">3.焊接组装</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-3-1">3.1 检查元器件，以及其他材料</a></div></li><li class="nav-item open" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-3-2">3.2 烧录固件</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-3-2-1">3.2.1 烧录micropython底包</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-3-2-2">3.2.2 烧录固件</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-3-2-3">3.2.3 初步测试</a></div></li></ul></li><li class="nav-item open" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-3-3">3.3 焊接</a><button class="nav-caret" type="button" aria-expanded="true" aria-label="展开或收起此章节"><i></i></button></div><ul class="nav-sub"><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-3-3-1">3.3.1 焊接前的准备</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-3-3-2">3.3.2 正式焊接</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-3-3-3">3.3.3 相关教学视频</a></div></li><li class="nav-item" data-lvl="3"><div class="nav-row"><a class="nav-link" href="#sec-3-3-4">3.3.4 检查</a></div></li></ul></li><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-3-4">3.4 冒烟测试</a></div></li><li class="nav-item" data-lvl="2"><div class="nav-row"><a class="nav-link" href="#sec-3-5">3.5 组装</a></div></li></ul></li><li class="nav-item" data-lvl="1"><div class="nav-row"><a class="nav-link" href="#sec-4">4.写在后面</a></div></li></ul>
+    </div>
+  </aside>
+
+  <div id="backdrop"></div>
+
+  <main id="content">
+    <article id="doc"><section class="sec lvl1" id="sec-0"><h1 class="doc-h lvl1"><span class="hnum hnum-tight">0.</span>写在前面</h1></section><section class="sec lvl2" id="sec-0-1"><h2 class="doc-h lvl2"><span class="hnum hnum-tight">0.1</span>前言</h2><div class="blk"><p class="ln">本项目许可协议</p><p class="ln">本项目所有代码采用 CC BY-NC-SA 4.0 许可。</p><p class="ln ln-bullet">● 署名：任何使用、修改或再发布时，必须在显著位置注明本仓库地址</p><p class="ln ln-bullet">● 非商业性使用：不得将本项目或其衍生作品用于商业目的。如有侵权，将追究到底。</p><p class="ln ln-bullet">● 相同方式共享：如果你基于本项目进行修改或再发布，必须继续使用 CC BY-NC-SA 4.0 协议，并公开源代码。</p><p class="ln ln-bullet">● 如果不了解这个开源规则约束下什么事情不能做，可以去问ai。</p></div><div class="blk"><p class="ln">声明：此项目目前未向任何人授权商业使用，本人闲鱼只有（YumFish）这一个账号，该项目成品仅在快团团（香辣芭乐）和闲鱼（YumFish）进行过合法售卖，</p><p class="ln">其他渠道得到的商业成品均为侵权！！！</p></div><div class="blk"><p class="ln">关于这两个玩具，以及对比，看图。</p><p class="ln">注意：本教程涉及焊接、嵌入式编程、pcb等技术栈，建议动手能力不好的谨慎模仿。</p></div><div class="fig"><img class="doc-img" src="../1783102920-14877-2026-07-04-021954.png" alt="alt text" loading="lazy" decoding="async" width="1523" height="355"></div><div class="blk"><p class="ln">改造思路就是，wildone原装控制器是3.5mm接口（就是耳机、音频接口）的基础上进行的魔改，</p><p class="ln">既然接口是标准的，那么可以逆向得到控制逻辑，并参考一些网上公开的，ufo-tw的协议</p><p class="ln">使用单片机（本教程采用esp-32）进行桥接。</p></div><div class="blk"><p class="ln">由于不想占用过多个人精力，故暂时不再接定制，本文档写的很详细，即使是电路小白，只要有动手能力，就能完整做出来能用的设备。</p><p class="ln">如果遇到问题，请进入QQ群友好交流。</p><p class="ln">QQ群：748068145</p><p class="ln">我的QQ：177078471</p></div></section><section class="sec lvl2" id="sec-0-2"><h2 class="doc-h lvl2"><span class="hnum">0.2</span> 相关链接：</h2><div class="blk"><p class="ln">github：<a href="https://github.com/Mistpeach/fakeUFO" target="_blank" rel="noopener noreferrer">https://github.com/Mistpeach/fakeUFO</a></p><p class="ln">此项目配套软件：<a href="https://github.com/Mistpeach/Web-UFO-Player" target="_blank" rel="noopener noreferrer">https://github.com/Mistpeach/Web-UFO-Player</a></p><p class="ln">配套软件在线使用：<a href="https://ufo.yumfish.cn/" target="_blank" rel="noopener noreferrer">https://ufo.yumfish.cn/</a></p></div></section><section class="sec lvl1" id="sec-1"><h1 class="doc-h lvl1"><span class="hnum hnum-tight">1.</span>所需工具</h1></section><section class="sec lvl2" id="sec-1-1"><h2 class="doc-h lvl2"><span class="hnum">1.1</span> 电烙铁</h2><div class="blk"><p class="ln">电烙铁是必须有的。</p><p class="ln">本项目的焊接部分很少，而且全部都是插件，可以不用焊接任何贴片元件。</p><p class="ln">市面上基本上你能买到的，合格的电烙铁都足以完成这个项目（甚至拼西西几块钱的也能够用了）。</p><p class="ln">一般来说，更好的电烙铁用起来会更顺手。</p><p class="ln">电烙铁内热式好于外热，可调温优于不可调。</p><p class="ln">至于烙铁头，这个见仁见智，新手可能尖头会好上手一些，我自己用的是小刀头。新手选择烙铁头不建议选择普通刀头，一是加温回温很慢，二是不方便在狭小的地方灵活穿梭。</p></div></section><section class="sec lvl2" id="sec-1-2"><h2 class="doc-h lvl2"><span class="hnum">1.2</span> 焊锡丝</h2><div class="blk"><p class="ln">现在市面上的焊锡丝基本上都是松香芯的，随便买一个就好。10克以内焊锡丝即可充足地完成本项目一个电路板的焊接。</p></div></section><section class="sec lvl2" id="sec-1-3"><h2 class="doc-h lvl2"><span class="hnum">1.3</span> 电脑</h2><div class="blk"><p class="ln">本教程以Windows电脑演示，如果你是linux或者macos，请向ai寻求帮助。</p></div></section><section class="sec lvl2" id="sec-1-4"><h2 class="doc-h lvl2"><span class="hnum">1.4</span> 可选的工具</h2></section><section class="sec lvl3" id="sec-1-4-1"><h3 class="doc-h lvl3"><span class="hnum">1.4.1</span> 助焊剂</h3><div class="blk"><p class="ln">助焊剂可以让你在焊接过程中更丝滑。</p></div></section><section class="sec lvl3" id="sec-1-4-2"><h3 class="doc-h lvl3"><span class="hnum">1.4.2</span> 夹具</h3><div class="blk"><p class="ln">夹具的作用是固定电路板不让它移动，可以用身边的其他物品代替。</p></div></section><section class="sec lvl3" id="sec-1-4-3"><h3 class="doc-h lvl3"><span class="hnum">1.4.3</span> 高温海绵</h3><div class="blk"><p class="ln">高温海绵的作用是清理烙铁头，使用前请务必将高温海绵打湿。</p><p class="ln">烙铁头上面粘的焊锡，加热的时间长会发生氧化，同时焊锡丝里面含的助焊剂会挥发，导致焊锡到不了焊盘上，此时需要把烙铁头上面的焊锡在海面上蹭掉。可以使用湿水卫生纸或棉柔巾、湿巾代替。</p><p class="ln">注：焊盘，即pcb电路板上面用于与元器件接触的金属部件，根据不同的工艺，会显示不同颜色。OSP-铜色；喷锡-银色；沉金-金色；</p></div></section><section class="sec lvl3" id="sec-1-4-4"><h3 class="doc-h lvl3"><span class="hnum">1.4.4</span> 口罩</h3><div class="blk"><p class="ln">建议在焊接时候戴口罩，并保持通风。口罩防护等级越高越好。焊接时候产生的浓烟，吸入体内对人体有害。</p><p class="ln">肺活量高的童鞋可以选择憋气大法。</p></div></section><section class="sec lvl3" id="sec-1-4-5"><h3 class="doc-h lvl3"><span class="hnum">1.4.5</span> 水口钳、斜口钳</h3><div class="blk"><p class="ln">这个东西主要是用在焊接完成后剪掉多余的长引脚，防止扎人的。如果你使用传统排针方案，建议使用老虎钳或普通尖嘴钳子来剪断引脚。</p><p class="ln">水口钳可以使用指甲刀代替。</p></div></section><section class="sec lvl2" id="sec-1-5"><h2 class="doc-h lvl2"><span class="hnum">1.5</span> 如何白嫖工具？</h2><div class="blk"><p class="ln">这时候就要请出电子界的大善人嘉立创了，嘉立创旗下的立创商城是一个售卖电子元器件、工具等的平台。</p><p class="ln">平台新用户注册可以送各种优惠券，还有首单一分购活动。建议使用微信扫码注册</p><p class="ln">链接：</p><p class="ln"><a href="https://activity.szlcsc.com/newuser.html?from=dfb&amp;spm=sc.hm.fad&amp;lcsc_vid=FVRbAVBVFlVfUlYFRAJWVwVVE1UMUFZVFABcXgZVQAUxVlNfRVFZVlJeQlVaVDtW" target="_blank" rel="noopener noreferrer">https://activity.szlcsc.com/newuser.html?from=dfb&amp;spm=sc.hm.fad&amp;lcsc_vid=FVRbAVBVFlVfUlYFRAJWVwVVE1UMUFZVFABcXgZVQAUxVlNfRVFZVlJeQlVaVDtW</a></p><p class="ln">（之前还有邀请新用户的活动，现在也没有了。。。）</p><p class="ln">立创商城学生认证也可以领一些优惠券</p><p class="ln">链接：</p><p class="ln"><a href="https://activity.szlcsc.com/landing/B7DE73440EA467E8786955EFEE82F3D9.html?from=wdgn&amp;spm=sc.hm.fn.0___sc.hm.mb.lg&amp;lcsc_vid=FVRbAVBVFlVfUlYFRAJWVwVVE1UMUFZVFABcXgZVQAUxVlNfRVFZVlJeQlVaVDtW" target="_blank" rel="noopener noreferrer">https://activity.szlcsc.com/landing/B7DE73440EA467E8786955EFEE82F3D9.html?from=wdgn&amp;spm=sc.hm.fn.0___sc.hm.mb.lg&amp;lcsc_vid=FVRbAVBVFlVfUlYFRAJWVwVVE1UMUFZVFABcXgZVQAUxVlNfRVFZVlJeQlVaVDtW</a></p><p class="ln">立创商城小程序端，每月可参加一次团购秒杀，使用对应手机号的微信搜索立创商城小程序，首页-天天团。</p></div></section><section class="sec lvl1" id="sec-2"><h1 class="doc-h lvl1"><span class="hnum hnum-tight">2.</span>所需材料</h1></section><section class="sec lvl2" id="sec-2-1"><h2 class="doc-h lvl2"><span class="hnum">2.1</span> 必须购买的元器件材料</h2><div class="blk"><p class="ln">esp32-c3-supermini开发板 x1 淘宝搜，10元左右。注意尺寸，不要买错了装不上。注意不要买成拓展板。小白建议购买焊接好排针的。</p><p class="ln">参考链接：<a href="https://e.tb.cn/h.RwUDRcgTVfwgo8J?tk=mw9hglkJzC9" target="_blank" rel="noopener noreferrer">https://e.tb.cn/h.RwUDRcgTVfwgo8J?tk=mw9hglkJzC9</a></p></div><div class="blk"><p class="ln">3.5mm耳机插座母座 x2 封装是pj-313，要买三节的，就是5pin或者6pin，淘宝搜关键词：3.5mm母座pj-313</p><p class="ln">注意必须要买插件，否则焊接会有难度。</p><p class="ln">参考链接：<a href="https://e.tb.cn/h.j0BnOc8Y4L83wSe?tk=aHMhTHyT9yd" target="_blank" rel="noopener noreferrer">https://e.tb.cn/h.j0BnOc8Y4L83wSe?tk=aHMhTHyT9yd</a></p></div><div class="blk"><p class="ln">tb6612fng电机驱动模块 x1 淘宝直接搜就行。注意尺寸，买错了装不上。小白建议购买焊接好排针的。</p><p class="ln">参考链接：<a href="https://e.tb.cn/h.j1hhmCOEUMpjxfa?tk=NYSRTHy6NQm" target="_blank" rel="noopener noreferrer">https://e.tb.cn/h.j1hhmCOEUMpjxfa?tk=NYSRTHy6NQm</a></p></div></section><section class="sec lvl2" id="sec-2-2"><h2 class="doc-h lvl2"><span class="hnum">2.2</span> 排母</h2><div class="blk"><p class="ln">强烈建议小白选择排母方案</p><p class="ln">传统方案是，模块通过排针直接焊接到pcb，是直接焊死。</p><p class="ln">电子模块的良率不是很高，新手建议用排母方案，避免模块出现问题，到时候不好拆下来。</p><p class="ln">排母规格:2.54间距   引脚加长 1x8p   </p><p class="ln">一个控制器需要4条，建议多买几条备用</p><p class="ln">一定要买引脚加长的排母，否则难以焊接。</p><p class="ln">参考链接：<a href="https://e.tb.cn/h.j1fnx8sel7Djrrs?tk=ponUTHvQuVK" target="_blank" rel="noopener noreferrer">https://e.tb.cn/h.j1fnx8sel7Djrrs?tk=ponUTHvQuVK</a></p><p class="ln">排母方案的好处:电路板上焊接排母，主控模块是可插拔的，如果模块有质量问题，可方便拔下来更换，不用费劲拆焊了。(拆焊十分甚至有九分麻烦)</p><p class="ln">坏处:无法使用3d打印的外壳，因为排母也占一部分高度。</p><p class="ln">注意：如果使用排母方案，还需要使用胶带或者热缩管进行绝缘。想必你们也不想涩涩的时候冒火花吧，</p><p class="ln">就把做好的板子整体包起来就好，不要让金属引脚漏在外面。</p></div></section><section class="sec lvl2" id="sec-2-3"><h2 class="doc-h lvl2"><span class="hnum">2.3</span> 可选材料</h2><div class="blk"><p class="ln">保护电机的电容，貌似可以通过吸收pwm尖峰的形式来保护电机，具体电容型号未知，因为我没有用这个东西。总之板子上留的有焊盘，不要也行。</p></div></section><section class="sec lvl2" id="sec-2-4"><h2 class="doc-h lvl2"><span class="hnum">2.4</span> 需要下单定制的材料</h2></section><section class="sec lvl3" id="sec-2-4-1"><h3 class="doc-h lvl3"><span class="hnum">2.4.1</span> PCB电路板</h3><div class="blk"><p class="ln">pcb是必须要准备的，它的作用是为元器件提供一个平台，并用内部的铜线正确的链接各个元器件以及接口。</p><p class="ln">这个东西可以白嫖。</p><p class="ln">全体起立！这时候就又又又要请出电子界的大善人嘉立创了，嘉立创为我们每月提供了两次的免费pcb的机会。</p></div></section><section class="sec lvl4" id="sec-2-4-1-1"><h4 class="doc-h lvl4"><span class="hnum">2.4.1.1</span> 登录或注册</h4><div class="blk"><p class="ln">电脑浏览器进入这个链接：</p><p class="ln"><a href="https://www.jlc.com/" target="_blank" rel="noopener noreferrer">https://www.jlc.com/</a></p><p class="ln">右上角，使用和立创商城相同的登陆方式登录嘉立创官网。</p></div></section><section class="sec lvl4" id="sec-2-4-1-2"><h4 class="doc-h lvl4"><span class="hnum">2.4.1.2</span> 参加考试</h4><div class="blk"><p class="ln">嘉立创目前只有通过考试的用户可以领取沉金工艺免费券，否则只能领取osp工艺免费券。考试很宽松，人人都能过。</p><p class="ln">相对比，沉金工艺的pcb性能更好，焊接更容易，也更能抗氧化。</p></div><div class="blk"><p class="ln">进入  嘉立创客户中心，  链接</p><p class="ln"><a href="https://member.jlc.com/" target="_blank" rel="noopener noreferrer">https://member.jlc.com/</a></p></div><div class="blk"><p class="ln">点击左侧用户中心-更多服务-嘉立创题库</p><p class="ln">然后在打开的页面点击开始考试</p></div><div class="fig"><img class="doc-img" src="../image.png" alt="alt text" loading="lazy" decoding="async" width="696" height="941"></div><div class="blk"><p class="ln">进入考试后，可以使用ai工具拍照搜索答案，按我的经验，多选题基本上是全选的，其他题目随便选也能通过考试。</p></div></section><section class="sec lvl4" id="sec-2-4-1-3"><h4 class="doc-h lvl4"><span class="hnum">2.4.1.3</span> 领取优惠券</h4><div class="blk"><p class="ln">点击左侧用户中心-优惠券中心-PCB免费券</p></div><div class="fig"><img class="doc-img" src="../image-1.png" alt="alt text" loading="lazy" decoding="async" width="277" height="680"></div><div class="blk"><p class="ln">下拉选择对应的优惠券进行领取，通过考试选择2-4层沉金EDA专用券，未通过就选择1-6层板OSP EDA专用券</p></div><div class="fig"><img class="doc-img" src="../image-2.png" alt="alt text" loading="lazy" decoding="async" width="279" height="318"><img class="doc-img" src="../image-3.png" alt="alt text" loading="lazy" decoding="async" width="270" height="313"></div></section><section class="sec lvl4" id="sec-2-4-1-4"><h4 class="doc-h lvl4"><span class="hnum">2.4.1.4</span> 打开pcb工程并进行下单</h4><div class="blk"><p class="ln">电脑浏览器打开这个链接：</p><p class="ln"><a href="https://u.lceda.cn/join?type=project&amp;key=e0db5475a3616641f8d88ceb35fd80e0&amp;inviter=2ea6d92dd56247efaa15050ddcc8d6e7" target="_blank" rel="noopener noreferrer">https://u.lceda.cn/join?type=project&amp;key=e0db5475a3616641f8d88ceb35fd80e0&amp;inviter=2ea6d92dd56247efaa15050ddcc8d6e7</a></p><p class="ln">使用前面一样的账号登录嘉立创eda，加入工程，再点击查看详情</p><p class="ln">在新页面点击-编辑器打开</p></div><div class="fig"><img class="doc-img" src="../image-4.png" alt="alt text" loading="lazy" decoding="async" width="1253" height="383"></div><div class="blk"><p class="ln">从左侧目录双击打开pcb文件</p></div><div class="fig"><img class="doc-img" src="../image-5.png" alt="alt text" loading="lazy" decoding="async" width="298" height="343"></div><div class="blk"><p class="ln">打开后什么都不用动，直接点上面菜单的导出-PCB制版文件</p></div><div class="fig"><img class="doc-img" src="../image-6.png" alt="alt text" loading="lazy" decoding="async" width="1478" height="826"></div><div class="blk"><p class="ln">点击 pcb下单</p></div><div class="fig"><img class="doc-img" src="../image-7.png" alt="alt text" loading="lazy" decoding="async" width="774" height="227"></div><div class="blk"><p class="ln">点击 否</p></div><div class="fig"><img class="doc-img" src="../image-8.png" alt="alt text" loading="lazy" decoding="async" width="429" height="202"></div><div class="blk"><p class="ln">点击 确定</p></div><div class="fig"><img class="doc-img" src="../image-9.png" alt="alt text" loading="lazy" decoding="async" width="393" height="209"></div></section><section class="sec lvl4" id="sec-2-4-1-5"><h4 class="doc-h lvl4"><span class="hnum">2.4.1.5</span> 修改pcb生产参数</h4><div class="blk"><p class="ln">这里我只说几个需要手动改的，很多信息都是系统默认即可</p></div><div class="blk"><p class="ln">基本信息照着这个填写</p></div><div class="fig"><img class="doc-img" src="../image-10.png" alt="alt text" loading="lazy" decoding="async" width="933" height="412"></div><div class="blk"><p class="ln">pcb工艺-出货方式：选择单片</p><p class="ln">pcb工艺-阻焊颜色：选你喜欢的颜色，在右侧可以看预览图。不过这个预览图有色差。部分冷门颜色可能会导致交期延迟或者无法使用优惠券，建议使用绿色、蓝色、白色、黑色、紫色。绿色板子交期最快。</p><p class="ln">pcb工艺-焊盘喷镀：根据前面领取的优惠券，沉金券就选择沉金、osp券同理。</p></div><div class="blk"><p class="ln">pcb工艺预览图，可以照着填</p></div><div class="fig"><img class="doc-img" src="../image-13.png" alt="alt text" loading="lazy" decoding="async" width="808" height="841"></div><div class="blk"><p class="ln">个性化服务-品质赔付服务：选择按标准合同常规处理，否则会产生费用，也没必要。</p></div><div class="fig"><img class="doc-img" src="../image-12.png" alt="alt text" loading="lazy" decoding="async" width="1263" height="659"></div><div class="blk"><p class="ln">个性化服务-是否需要磨边：不需要</p><p class="ln">个性化服务-板子上加标志：随便选一个免费的即可，如果你搞不懂什么是随机位置，什么是指定位置，就选择最简单的无要求即可，不影响板子使用。</p><p class="ln">交期：一般都是正常3天，选择其他的可能产生加急费用。</p><p class="ln">SMT贴片/激光钢网：两个选项都选择不需要</p><p class="ln">开票/支付：这里需要你添加你的发票信息，一般是填写自己名字，选择增值税普通发票</p><p class="ln">确认订单方式：选择自动确认即可</p><p class="ln">发货/快递：填写你的地址，选择快递公司即可，嘉立创提供顺丰、京东、ems包邮</p><p class="ln">发货方式：不同订单不一起发货</p><p class="ln">技术联系人和下单联系人都填你自己的信息即可。</p></div></section><section class="sec lvl4" id="sec-2-4-1-6"><h4 class="doc-h lvl4"><span class="hnum">2.4.1.6</span> 选择优惠券并下单</h4><div class="fig"><img class="doc-img" src="../image-14.png" alt="alt text" loading="lazy" decoding="async" width="396" height="711"></div><div class="blk"><p class="ln">正确选择优惠券后，价格会变为免费</p></div><div class="fig"><img class="doc-img" src="../image-15.png" alt="alt text" loading="lazy" decoding="async" width="408" height="748"></div><div class="blk"><p class="ln">点击 检查订单，核对无误后提交订单即可</p></div><div class="blk"><p class="ln">注意：下单完成后，订单进入审核期，一般很快就会被系统自动审核通过</p><p class="ln">另外，即使是免费订单，也需要有支付的环节，选择余额支付0元即可。</p></div><div class="blk"><p class="ln">下单完成后，在左侧找到订单列表，可以查看工厂生产进度，以及快递信息。</p></div><div class="fig"><img class="doc-img" src="../image-16.png" alt="alt text" loading="lazy" decoding="async" width="259" height="461"></div><div class="blk"><p class="ln">使用嘉立创微信小程序也可查看进度。</p></div></section><section class="sec lvl3" id="sec-2-4-2"><h3 class="doc-h lvl3"><span class="hnum">2.4.2</span> 3d打印外壳</h3><div class="blk"><p class="ln">请注意：如果使用排母方案，则开源仓库中的外壳文件不适用。</p><p class="ln">3d打印外壳文件在这里面</p><p class="ln"><a href="https://github.com/Mistpeach/fakeUFO/tree/main/3d%E5%A4%96%E5%A3%B3" target="_blank" rel="noopener noreferrer">https://github.com/Mistpeach/fakeUFO/tree/main/3d%E5%A4%96%E5%A3%B3</a></p><p class="ln">下载：壳体-5.65孔径版本.stl</p><p class="ln">以及：新-抽板.stl</p><p class="ln">这两个文件</p></div><div class="blk"><p class="ln">如何白嫖3d打印外壳？</p><p class="ln">这时候就又又又又又又又又又要请出电子界的大善人嘉立创了</p><p class="ln">打开这个链接：<a href="https://www.jlc-3dp.cn/fp/Ast09a1/1" target="_blank" rel="noopener noreferrer">https://www.jlc-3dp.cn/fp/Ast09a1/1</a></p><p class="ln">使用刚才的账号登录，参加活动，顺便帮我点点助力。</p><p class="ln">新用户会默认发一张x树脂免费打样券，把这个活动页面的优惠券能直接领的都领了。</p><p class="ln">再点击右上角-在线报价，上传你刚才下载的stl文件（如果使用免费打样券，貌似不支持一次性下单两个。可以尝试先下单壳体）</p><p class="ln">选择材料：选择x树脂-随机颜色</p></div><div class="fig"><img class="doc-img" src="../image-17.png" alt="alt text" loading="lazy" decoding="async" width="1068" height="878"></div><div class="blk"><p class="ln">然后提交订单填信息即可，注意和pcb不一样，这里选择不同交期一起发货，可以尽量避免产生两次运费。（3d打印免费，但是不包邮）</p><p class="ln">注意：3d打印由于抽板零件比较小，所以客服可能会审核不通过，此时回复客服：我已了解并愿意承担相关风险，按照原图纸生产即可。</p><p class="ln">回复后，就能正常走到生产流程了。</p></div></section><section class="sec lvl1" id="sec-3"><h1 class="doc-h lvl1"><span class="hnum hnum-tight">3.</span>焊接组装</h1></section><section class="sec lvl2" id="sec-3-1"><h2 class="doc-h lvl2"><span class="hnum">3.1</span> 检查元器件，以及其他材料</h2><div class="blk"><p class="ln">检查元器件、模块、外观是否完好，出厂焊接是否牢固，是否掉件，是否焊接歪斜。</p></div></section><section class="sec lvl2" id="sec-3-2"><h2 class="doc-h lvl2"><span class="hnum">3.2</span> 烧录固件</h2><div class="blk"><p class="ln">由于esp开发板可能存在不良品，这里先进行烧录固件，初步排除故障可能性。</p></div></section><section class="sec lvl3" id="sec-3-2-1"><h3 class="doc-h lvl3"><span class="hnum">3.2.1</span> 烧录micropython底包</h3><div class="blk"><p class="ln">电脑端下载软件，thonny。去官网下载。<a href="https://thonny.org/" target="_blank" rel="noopener noreferrer">https://thonny.org/</a></p><p class="ln">用typec线连接电脑和开发板，打开电脑的设备管理器，（右键此电脑-管理-设备管理器）（或者开始菜单直接搜）</p><p class="ln">在端口下面会显示一个 usb串行设备（COM x）</p><p class="ln">括号里面的com x 就是端口号，每个人的端口号不一样，我这里显示的是com8，可能你的电脑显示com4，com12都有可能，记住这个端口号。</p></div><div class="fig"><img class="doc-img" src="../image-18.png" alt="alt text" loading="lazy" decoding="async" width="490" height="395"></div><div class="blk"><p class="ln">打开thonny，顶部菜单选择：运行-配置解释器</p></div><div class="fig"><img class="doc-img" src="../image-19.png" alt="alt text" loading="lazy" decoding="async" width="469" height="106"></div><div class="blk"><p class="ln">点击右下角蓝色字，安装或更新micropython</p></div><div class="fig"><img class="doc-img" src="../image-20.png" alt="alt text" loading="lazy" decoding="async" width="238" height="43"></div><div class="blk"><p class="ln">点进去等一小会加载，一般不需要科学上网。</p><p class="ln">target port就是刚才的端口号（每个人的端口号不一样，我这里显示的是com8，可能你的电脑显示com4，com12都有可能。）按照图片设置。只需要设置前三个，后面的会自动补充。</p></div><div class="fig"><img class="doc-img" src="../image-21.png" alt="alt text" loading="lazy" decoding="async" width="607" height="580"></div><div class="blk"><p class="ln">设置好之后，点击安装。等待左下角显示done，然后点击 关闭</p><p class="ln">如果点击安装没反应，请尝试按住开发板上的boot按钮，再插入usb。</p></div><div class="fig"><img class="doc-img" src="../image-22.png" alt="alt text" loading="lazy" decoding="async" width="164" height="104"></div><div class="blk"><p class="ln">回到配置解释器的页面，按照下面图片这么设置。注意，端口那里要选择自己的端口号，或者选择自动探测端口。</p></div><div class="fig"><img class="doc-img" src="../image-23.png" alt="alt text" loading="lazy" decoding="async" width="583" height="572"></div><div class="blk"><p class="ln">设置好之后，thonny主页面的终端会显示如下图。如果显示红字报错就是有问题，优先检查端口号。不行的话尝试拔掉开发板，关掉软件。然后先插入开发板再打开软件。</p></div><div class="fig"><img class="doc-img" src="../image-24.png" alt="alt text" loading="lazy" decoding="async" width="765" height="464"></div></section><section class="sec lvl3" id="sec-3-2-2"><h3 class="doc-h lvl3"><span class="hnum">3.2.2</span> 烧录固件</h3><div class="blk"><p class="ln">固件在下面链接里面有</p><p class="ln"><a href="https://github.com/Mistpeach/fakeUFO/tree/main/thonny%E7%83%A7%E5%BD%95%E4%BB%A3%E7%A0%81/2in1" target="_blank" rel="noopener noreferrer">https://github.com/Mistpeach/fakeUFO/tree/main/thonny%E7%83%A7%E5%BD%95%E4%BB%A3%E7%A0%81/2in1</a></p><p class="ln">三个文件（boot.py、main.py、motor.py）都需要下载。</p></div><div class="blk"><p class="ln">下载好后，在thonny软件里，上方菜单栏选择文件-打开-此电脑-找到你保存的路径</p><p class="ln">直接烧录2in1二合一代码即可同时适配不同的app</p><p class="ln">依次打开boot.py，main.py，motor.py这三个文件。</p><p class="ln">然后把这三个文件依次保存到开发板上。（文件-另存为-micropython设备）</p><p class="ln">记得，文件名称需要自己填，boot.py，main.py，motor.py,不要写错了。提示覆盖点确认就行。</p></div><div class="fig"><img class="doc-img" src="../image-25.png" alt="alt text" loading="lazy" decoding="async" width="612" height="347"></div><div class="fig"><img class="doc-img" src="../image-26.png" alt="alt text" loading="lazy" decoding="async" width="616" height="352"></div><div class="blk"><p class="ln">全部保存成功后，重启开发板。（或者直接拔掉typec线再插上）</p></div></section><section class="sec lvl3" id="sec-3-2-3"><h3 class="doc-h lvl3"><span class="hnum">3.2.3</span> 初步测试</h3><div class="blk"><p class="ln">手机或者电脑（带蓝牙功能）使用edge 或者 chrome浏览器，打开UFO Assistant（部署在cloudflare，可能需要科学上网）</p><p class="ln">链接：</p><p class="ln"><a href="https://ufo.yumfish.cn/" target="_blank" rel="noopener noreferrer">https://ufo.yumfish.cn/</a></p><p class="ln">进入波形控制器，左上角链接蓝牙，选择ufo-tw</p><p class="ln">如果能连接上蓝牙，证明开发板大概率是好的，如果出现问题，可以尝试重新链接，更换设备（电脑手机），断电重启等。</p></div></section><section class="sec lvl2" id="sec-3-3"><h2 class="doc-h lvl2"><span class="hnum">3.3</span> 焊接</h2><div class="blk"><p class="ln">如果你是小白，这一步可以到家电维修部找师傅完成。活不难，一般师傅会收几块钱，基本上十块钱一下就能搞定。</p></div></section><section class="sec lvl3" id="sec-3-3-1"><h3 class="doc-h lvl3"><span class="hnum">3.3.1</span> 焊接前的准备</h3><div class="blk"><p class="ln">戴好口罩，准备好烙铁、焊锡丝等工具，以及待焊接的元器件</p><p class="ln">请注意：电烙铁的电源线接在身体右侧的插座，这样可以避免高温烙铁头烫到电线引发触电。</p><p class="ln">待焊接的元器件放在左边，以免左手往右伸拿元件时候被烫伤。</p><p class="ln">可调温度的烙铁，请把温度设置到350摄氏度左右，并插电预热。</p></div></section><section class="sec lvl3" id="sec-3-3-2"><h3 class="doc-h lvl3"><span class="hnum">3.3.2</span> 正式焊接</h3><div class="blk"><p class="ln">请根据图片所示，将模块和其他器件依次焊接到pcb</p></div><div class="fig"><img class="doc-img" src="../image-27.png" alt="alt text" loading="lazy" decoding="async" width="552" height="216"></div><div class="blk"><p class="ln">请注意板子正反面，带有字母标识的一面是正面，从此面摆放元器件，从反面上焊锡焊接。反面不应该出现任何元器件，只有针脚。</p><p class="ln">下图为正面示意</p></div><div class="fig"><img class="doc-img" src="../image-28.png" alt="alt text" loading="lazy" decoding="async" width="869" height="262"></div><div class="blk"><p class="ln">下图为反面示意</p></div><div class="fig"><img class="doc-img" src="../image-29.png" alt="alt text" loading="lazy" decoding="async" width="854" height="298"></div><div class="blk"><p class="ln">下图为反面焊接完成的示意</p></div><div class="fig"><img class="doc-img" src="../image-30.png" alt="alt text" loading="lazy" decoding="async" width="451" height="150"></div><div class="blk"><p class="ln">请注意模块的摆放的方向，方向反了可能会烧毁。</p><p class="ln">如果你是排母方案，那么这一步你需要把排母和3.5mm母座焊接到板子上，然后按照正确的方向和位置将模块插到排母上面。</p><p class="ln">下图为排母方案的正面焊接示意图（忽略预览图上面的贴片元器件）</p></div><div class="fig"><img class="doc-img" src="../image-31.png" alt="alt text" loading="lazy" decoding="async" width="939" height="283"></div></section><section class="sec lvl3" id="sec-3-3-3"><h3 class="doc-h lvl3"><span class="hnum">3.3.3</span> 相关教学视频</h3><div class="blk"><p class="ln">【焊锡教学—插件-哔哩哔哩】 <a href="https://b23.tv/5uBeix6" target="_blank" rel="noopener noreferrer">https://b23.tv/5uBeix6</a></p><p class="ln">【焊接插件的正确方法。-哔哩哔哩】 <a href="https://b23.tv/rAPHXmV" target="_blank" rel="noopener noreferrer">https://b23.tv/rAPHXmV</a></p><p class="ln">【排针排母的焊接-哔哩哔哩】 <a href="https://b23.tv/SCPoUaD" target="_blank" rel="noopener noreferrer">https://b23.tv/SCPoUaD</a></p></div></section><section class="sec lvl3" id="sec-3-3-4"><h3 class="doc-h lvl3"><span class="hnum">3.3.4</span> 检查</h3><div class="blk"><p class="ln">焊接好之后，必须仔细检查是否有连锡，必须仔细检查，哪怕一点点的连锡也有可能直接坠机。</p></div></section><section class="sec lvl2" id="sec-3-4"><h2 class="doc-h lvl2"><span class="hnum">3.4</span> 冒烟测试</h2><div class="blk"><p class="ln">如果你有万用表，建议先测量vcc、5v对地电阻，避免短路上电。</p><p class="ln">请先单独将板子通电，链接蓝牙，测试有无异常发热、糊味</p><p class="ln">确定无误后，再接入玩具，开一个简单的波形，并将两侧设置为一样的速度。</p><p class="ln">重点观察：两侧正、反转速度是否一致；调节速度，观察不同速度下两侧玩具的一致性。</p></div></section><section class="sec lvl2" id="sec-3-5"><h2 class="doc-h lvl2"><span class="hnum">3.5</span> 组装</h2><div class="blk"><p class="ln">将引脚剪短，插入3d打印的外壳里，固定抽板，即可。</p><p class="ln">若为排母方案，请使用绝缘体将板子包起来，避免针脚露出来。</p></div></section><section class="sec lvl1" id="sec-4"><h1 class="doc-h lvl1"><span class="hnum hnum-tight">4.</span>写在后面</h1><div class="blk"><p class="ln">当你走到这一步的时候，你已经成功完成了这个项目。开始享受瑟瑟吧。</p><p class="ln">另外，如果有相关问题请到QQ群讨论。</p><p class="ln">本文共5000＋字数，纯手打，希望对你有帮助。</p><p class="ln">如果这个项目对你有用，请打赏支持我！</p><p class="ln">链接：<a href="https://ufo.yumfish.cn/donate" target="_blank" rel="noopener noreferrer">https://ufo.yumfish.cn/donate</a></p><p class="ln">另外，开发板对每个人的电脑的兼容性可能不同，如果你遇到固件烧录的问题，我提供有偿在线远程调试，需要一瓶饮料的米，调不好不收费。</p></div></section></article>
+  </main>
+</div>
+
+<div id="lightbox"><img alt=""></div>
+
+<button id="toTop" class="icon-btn" type="button" aria-label="回到顶部">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<script>
+
+(function () {
+  var sidebar   = document.getElementById('sidebar'),
+      backdrop  = document.getElementById('backdrop'),
+      content   = document.getElementById('content'),
+      navScroll = document.getElementById('navScroll'),
+      navBtn    = document.getElementById('navBtn'),
+      navClose  = document.getElementById('sbClose'),
+      progress  = document.getElementById('progress'),
+      toTop     = document.getElementById('toTop'),
+      lightbox  = document.getElementById('lightbox'),
+      lightImg  = lightbox ? lightbox.querySelector('img') : null;
+
+  var mq = window.matchMedia('(min-width:1024px)');
+  var links = Array.prototype.slice.call(document.querySelectorAll('.nav-link'));
+  var secs  = Array.prototype.slice.call(document.querySelectorAll('.sec'));
+
+  /* 章节 id -> 导航链接 */
+  var linkById = {};
+  links.forEach(function (a) {
+    var id = (a.getAttribute('href') || '').slice(1);
+    if (id) { linkById[id] = a; }
+  });
+  /* 文档中出现的全部章节（用于滚动高亮，按出现顺序） */
+  var secIds = secs.map(function (s) { return s.id; });
+
+  function isDesktop() { return mq.matches; }
+  function openDrawer() {
+    sidebar.classList.add('open');
+    backdrop.classList.add('open');
+    navBtn.setAttribute('aria-expanded', 'true');
+  }
+  function closeDrawer() {
+    sidebar.classList.remove('open');
+    backdrop.classList.remove('open');
+    navBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  /* ---------- 目录显示 / 隐藏 ---------- */
+  navBtn.addEventListener('click', function () {
+    if (isDesktop()) {
+      var hidden = sidebar.classList.toggle('collapsed');
+      navBtn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+      navBtn.setAttribute('aria-label', hidden ? '显示目录' : '隐藏目录');
+    } else if (sidebar.classList.contains('open')) {
+      closeDrawer();
+    } else {
+      openDrawer();
+    }
+  });
+  if (navClose) { navClose.addEventListener('click', closeDrawer); }
+  backdrop.addEventListener('click', closeDrawer);
+
+  /* ---------- 展开 / 折叠 ---------- */
+  Array.prototype.slice.call(document.querySelectorAll('.nav-caret')).forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var li = btn.closest('.nav-item');
+      if (!li) { return; }
+      var open = li.classList.toggle('open');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  });
+
+  /* ---------- 点击导航跳转 ---------- */
+  function scrollToSection(el) {
+    if (!el) { return; }
+    var top = el.getBoundingClientRect().top - content.getBoundingClientRect().top
+              + content.scrollTop - 18;
+    content.scrollTo({ top: top < 0 ? 0 : top, behavior: 'smooth' });
+  }
+  links.forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      var id = (a.getAttribute('href') || '').slice(1);
+      var target = id ? document.getElementById(id) : null;
+      e.preventDefault();
+      closeDrawer();
+      if (target) {
+        scrollToSection(target);
+        setActive(id, true);
+        if (window.history && history.replaceState) {
+          history.replaceState(null, '', '#' + id);
+        }
+      }
+    });
+  });
+  /* 顶栏标题 -> 回到顶部 */
+  Array.prototype.slice.call(document.querySelectorAll('.doc-label')).forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      content.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+  toTop.addEventListener('click', function () {
+    content.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  /* ---------- 高亮当前章节 ---------- */
+  var activeId = null;
+  function setActive(id, force) {
+    if (!id || (id === activeId && !force)) { return; }
+    activeId = id;
+    links.forEach(function (a) {
+      a.classList.toggle('active', (a.getAttribute('href') || '').slice(1) === id);
+    });
+    var link = linkById[id];
+    if (!link) { return; }
+    /* 自动展开所有祖先节点 */
+    var li = link.closest('.nav-item');
+    var p = li && li.parentElement ? li.parentElement.closest('.nav-item') : null;
+    while (p) {
+      p.classList.add('open');
+      var c = p.querySelector('.nav-caret');
+      if (c) { c.setAttribute('aria-expanded', 'true'); }
+      p = p.parentElement ? p.parentElement.closest('.nav-item') : null;
+    }
+    /* 保证高亮项在目录可视范围内（只滚动目录，不动正文） */
+    var lr = link.getBoundingClientRect();
+    var nr = navScroll.getBoundingClientRect();
+    if (lr.top < nr.top) {
+      navScroll.scrollTop -= (nr.top - lr.top) + 10;
+    } else if (lr.bottom > nr.bottom) {
+      navScroll.scrollTop += (lr.bottom - nr.bottom) + 10;
+    }
+  }
+
+  /* ---------- 滚动：进度条 + 高亮 + 回到顶部 ---------- */
+  var ticking = false;
+  function update() {
+    ticking = false;
+    var paneTop = content.getBoundingClientRect().top;
+    var offset = Math.max(56, Math.min(140, content.clientHeight * 0.22));
+    var current = null;
+    for (var i = 0; i < secs.length; i++) {
+      if (!linkById[secs[i].id]) { continue; }
+      if (secs[i].getBoundingClientRect().top - paneTop <= offset) { current = secs[i]; }
+      else { break; }
+    }
+    var max = content.scrollHeight - content.clientHeight;
+    if (max > 0 && max - content.scrollTop < 4) {
+      for (var j = secs.length - 1; j >= 0; j--) {
+        if (linkById[secs[j].id]) { current = secs[j]; break; }
+      }
+    }
+    if (current) { setActive(current.id); }
+    progress.style.width = (max > 0 ? (content.scrollTop / max) * 100 : 0) + '%';
+    toTop.classList.toggle('show', content.scrollTop > 420);
+  }
+  function onScroll() {
+    if (ticking) { return; }
+    ticking = true;
+    var done = false;
+    var fire = function () { if (done) { return; } done = true; update(); };
+    window.requestAnimationFrame(fire);
+    /* 兜底：标签页切到后台时 rAF 会被浏览器暂停，这里保证高亮/进度条仍能更新 */
+    window.setTimeout(fire, 60);
+  }
+  content.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+
+  /* ---------- 图片放大查看 ---------- */
+  if (lightbox && lightImg) {
+    Array.prototype.slice.call(document.querySelectorAll('.doc-img')).forEach(function (img) {
+      img.addEventListener('click', function () {
+        lightImg.src = img.getAttribute('src');
+        lightImg.alt = img.getAttribute('alt') || '';
+        lightbox.classList.add('open');
+      });
+    });
+    lightbox.addEventListener('click', function () {
+      lightbox.classList.remove('open');
+      lightImg.removeAttribute('src');
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        lightbox.classList.remove('open');
+        lightImg.removeAttribute('src');
+        closeDrawer();
+      }
+    });
+  }
+
+  /* ---------- 断点切换 ---------- */
+  function onMq() {
+    if (mq.matches) { closeDrawer(); }
+    else { sidebar.classList.remove('collapsed'); navBtn.setAttribute('aria-expanded', 'true'); }
+    update();
+  }
+  if (mq.addEventListener) { mq.addEventListener('change', onMq); }
+  else if (mq.addListener) { mq.addListener(onMq); }
+
+  /* ---------- 初始定位 ---------- */
+  if (window.location.hash.length > 1) {
+    var t = document.getElementById(window.location.hash.slice(1));
+    if (t) {
+      window.setTimeout(function () {
+        content.scrollTop = t.getBoundingClientRect().top
+          - content.getBoundingClientRect().top + content.scrollTop - 14;
+      }, 60);
+    }
+  }
+  update();
+})();
+
+</script>
+</body>
+</html>
