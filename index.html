@@ -18,16 +18,18 @@
 
   /* ---------- 弹窗通用骨架（二级菜单 + 教程共用，避免重复样式） ---------- */
   .ovl { position: fixed; inset: 0; background: rgba(0,0,0,0.75); align-items: center; justify-content: center; padding: 16px; }
-  /* 必须用 id 选择器：style.css 里有 #tutorialOverlay{display:flex}，类选择器压不住它 */
-  #menuOverlay, #waveMenuOverlay, #tutorialOverlay, #waveTutorialOverlay, #noticeOverlay { display: none; }
+  /* 必须用 id 选择器：style.css 里有 #tutorialOverlay{display:flex}，类选择器压不住它。
+     ⚠ 新增弹窗时务必把它的 id 加进下面这行：.ovl 自己没有 display 属性，
+       漏了就会以默认的 display:block 一直盖在页面上。 */
+  #menuOverlay, #waveMenuOverlay, #aiMenuOverlay, #tutorialOverlay, #waveTutorialOverlay, #aiTutorialOverlay, #noticeOverlay { display: none; }
   .mbox { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; text-align: left; overflow: hidden; }
   .mhead { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #0f3460; font-size: 15px; color: #e0e0e0; }
   .mhead button { background: none; border: none; color: #aaa; font-size: 20px; line-height: 1; cursor: pointer; }
   .mhead button:hover { color: #e0e0e0; }
 
   /* 二级菜单弹窗 */
-  #menuOverlay, #waveMenuOverlay { z-index: 998; }
-  #menuBox, #waveMenuBox { max-width: 400px; }
+  #menuOverlay, #waveMenuOverlay, #aiMenuOverlay { z-index: 998; }
+  #menuBox, #waveMenuBox, #aiMenuBox { max-width: 400px; }
   .mbody { padding: 14px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
   .menu-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 16px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; font-size: 15px; font-family: inherit; text-decoration: none; cursor: pointer; text-align: left; }
   .menu-item:hover { background: #0f3460; }
@@ -37,8 +39,8 @@
   .menu-item.primary .hint { color: rgba(255,255,255,0.85); }
 
   /* 教程弹窗 */
-  #tutorialOverlay, #waveTutorialOverlay { z-index: 999; }
-  #tutorialBox, #waveTutorialBox { max-width: 620px; }
+  #tutorialOverlay, #waveTutorialOverlay, #aiTutorialOverlay { z-index: 999; }
+  #tutorialBox, #waveTutorialBox, #aiTutorialBox { max-width: 620px; }
 
   /* 进入主页面的声明弹窗（层级最高，压住所有其它弹窗） */
   #noticeOverlay { z-index: 1000; }
@@ -67,10 +69,12 @@
   <div class="btn-group">
     <button class="btn-hero primary" onclick="showMenu()" title="脚本播放器：二级菜单">🚀 脚本播放器</button>
     <button class="btn-hero primary" onclick="showWaveMenu()" title="波形控制器：二级菜单">🌊 波形控制器</button>
+    <button class="btn-hero primary" onclick="showAiMenu()" title="AI 控制器：二级菜单">🤖 AI 控制器</button>
   </div>
 
   <div class="btn-group" style="margin-top: 12px;">
     <a href="donate.html" class="btn-hero">💖 支持作者</a>
+    <a href="TestPage/index.html" class="btn-hero" title="环境自检 / 网络诊断 / 集成自测等测试页">🧪 测试页</a>
   </div>
 </div>
 
@@ -119,6 +123,21 @@
       <a class="menu-item primary" href="WaveControler/WaveApp.html" target="_blank" rel="noopener">🎮 进入控制界面<span class="hint">新标签页打开</span></a>
       <a class="menu-item" href="WaveControler/history/WaveHistory.html" target="_blank" rel="noopener">📜 历史版本<span class="hint">新标签页打开</span></a>
       <button class="menu-item" onclick="openWaveTutorialFromMenu()">📖 使用教程</button>
+    </div>
+  </div>
+</div>
+
+<!-- 二级菜单：AI 控制器 -->
+<div id="aiMenuOverlay" class="ovl" onclick="if(event.target===this)hideAiMenu()">
+  <div id="aiMenuBox" class="mbox">
+    <div class="mhead">
+      <span>🤖 AI 控制器</span>
+      <button onclick="hideAiMenu()" title="关闭（Esc）">&times;</button>
+    </div>
+    <div class="mbody">
+      <a class="menu-item primary" href="AiControler/AiApp.html" target="_blank" rel="noopener">🎮 进入控制界面<span class="hint">新标签页打开</span></a>
+      <a class="menu-item" href="AiControler/history/AiHistory.html" target="_blank" rel="noopener">📜 历史版本<span class="hint">新标签页打开</span></a>
+      <button class="menu-item" onclick="openAiTutorialFromMenu()">📖 使用教程</button>
     </div>
   </div>
 </div>
@@ -253,8 +272,83 @@
   </div>
 </div>
 
+<!-- 教程弹窗：AI 控制器 -->
+<div id="aiTutorialOverlay" class="ovl" onclick="if(event.target===this)hideAiTutorial()">
+  <div id="aiTutorialBox" class="mbox">
+    <div class="mhead">
+      <span>🤖 AI 控制器使用教程</span>
+      <button onclick="hideAiTutorial()" title="关闭（Esc）">&times;</button>
+    </div>
+    <div class="mcontent" id="aiTutorialContent">
+
+      <h4>它和另外两个有什么区别？</h4>
+      <p><b>脚本播放器</b>：跟着视频走 10~20 分钟的长流程。<br>
+      <b>波形控制器</b>：几秒到几十秒的短动作模板，循环播放。<br>
+      <b>AI 控制器</b>：把决定权交给大模型 —— 你说话，<b>它来挑波形、定强度、开哪一路</b>。<br>
+      内核和波形控制器是同一套（波形库、蓝牙、50ms 调度、示波器），<b>BLE 协议三边完全一致</b>。</p>
+
+      <h4>想先看一眼？用演示模式，不需要密钥</h4>
+      <p>打开 <code>AiApp.html?demo=1</code>，AI 由内置脚本扮演，走的是<b>同一条链路</b> —— 直接发消息就能看到控制块、徽章和示波器的完整流程。想接真的模型再往下看。</p>
+
+      <h4>三步开始</h4>
+      <ul>
+        <li><b>① 配接口</b>：点顶栏 <b>⚙ 设置 → 🔌 接口</b>，填 <b>接口地址</b>、<b>模型</b>、<b>API 密钥</b>，再点 <b>🔍 测试连接</b>。地址填到 <code>/v1</code> 为止，<b>不要</b>带 <code>/chat/completions</code>（那是下面「路径」那一栏的事）。</li>
+        <li><b>② 连蓝牙</b>：点 <b>🔵 连接蓝牙</b> 选 <code>UFO-TW</code>。没连也能聊天，只是控制不会发到设备。</li>
+        <li><b>③ 直接聊</b>：在底部输入框说要什么，回车发送。AI 的回复里会带控制块，界面把它翻译成徽章，并立即作用到设备。</li>
+      </ul>
+
+      <h4>AI 是怎么控制设备的</h4>
+      <p>AI 回复的<b>第一个</b> <code>```ufo</code> 围栏块里是一行 JSON，大致长这样：<br>
+      <code>{"v":1,"ctrl":{"on":true,"wave":"心跳（双跳）","intensity":45,"ch":"AB"},"hint":"试探着开始","branches":["再快一点","轻一些","先停一下"]}</code></p>
+      <ul>
+        <li>这段围栏块<b>永远不会上屏</b>，流式输出时也不会闪出来</li>
+        <li><code>hint</code> 显示成一行状态提示，<code>branches</code> 变成几个可点的<b>快捷回复</b></li>
+        <li>里面任何一个字段不合法 → <b>整块作废</b>：不做「部分生效」，也不做「钳制后执行」</li>
+      </ul>
+      <p>📌 格式不用你操心 —— 它是 AI 按提示词自己写的，你正常说话就行。想确认它到底收到了什么，用 🐞 调试面板。</p>
+
+      <h4>安全：它永远越不过你的上限</h4>
+      <ul>
+        <li>实际输出 = <b>AI 给的比率 × 你的最大强度</b>。上限默认 50%，在 <b>⚙ 设置 → 🛡 安全</b> 里改。</li>
+        <li><b>允许 AI 控制</b>总开关（状态条右侧也有一个）：关掉后 AI 照样能聊天，但它的控制只显示、不执行。</li>
+        <li>每一条控制都要过六道门禁：<b>急停闩锁 → 总开关 → ctrl 校验 → 上限乘数 → 蓝牙就绪 → 写引擎</b>，任一不过就整轮拒绝。</li>
+        <li><b>⏹ 急停</b>：0.8 秒内连点两次立即归零并<b>锁死</b>，之后 AI 的控制一律被拒，直到你点底部的 <b>恢复 AI 控制</b>。</li>
+        <li>建议保持 <b>等待 AI 回复期间保持当前动作</b> 开启，否则每一轮对话都会中断动作，体感很割裂。</li>
+      </ul>
+
+      <h4>🎭 角色卡</h4>
+      <p>决定 AI 扮演谁、你是谁。字段：名称 / emoji / 背景设定 / 你扮演 / 用户扮演 / 补充信息与边界 / 偏好波形。<br>
+      内置角色<b>只读</b>，想改就走「另存副本」—— 和波形库同一套规矩。<br>
+      提示词分三层：<b>L1 协议契约</b>（固定只读，角色卡改不动它）+ <b>L2 角色卡</b> + <b>L3 每轮实时状态</b>。</p>
+
+      <h4>🎛 让 AI 只用你允许的波形</h4>
+      <p>在 <b>🎛 手动控制</b> 侧栏的「AI 可用波形」里：<b>取消勾选 = AI 看不到也用不了</b>；每个波形还能写一句「AI 说明」，会一起注入提示词，而且<b>不会</b>改动波形控制器里的原始数据。<br>
+      波形来自波形控制器的波形库（内置 7 个 + 你自己导入的），本页对 <code>ufo.wave.*</code> 是<b>只读</b>的。</p>
+
+      <h4>🐞 调试面板</h4>
+      <ul>
+        <li><b>▶ 跑一遍假 AI</b>：按顺序放一遍内置假回复，不需要接口和密钥</li>
+        <li><b>📜 看提示词</b>：看这一轮真正发出去的 system 提示词 —— 排查「AI 为什么不听话」最有用</li>
+      </ul>
+
+      <h4>接非 OpenAI 家的服务</h4>
+      <p>只做 OpenAI 兼容形状，不绑定任何一家。默认发 <code>Authorization: Bearer &lt;key&gt;</code>、取 <code>choices.0.message.content</code>；<br>
+      要接别家就用「高级」里的：<b>自定义请求头</b>（如 <code>api-key</code>）、<b>追加 URL 参数</b>（如 Azure 的 <code>api-version</code>）、<b>追加请求体字段</b>，以及<b>从返回 JSON 的哪个路径取文本</b>。</p>
+
+      <h4>❓ 常见问题</h4>
+      <ul>
+        <li><b>AI 只聊天，设备不动？</b> 依次查：蓝牙连上了吗 → 状态条的「允许 AI 控制」开着吗 → 是不是被急停锁死了（底部会出现「恢复 AI 控制」）→ 用 🐞 看这一轮的提示词里有没有波形清单。</li>
+        <li><b>提示要先配置接口？</b> 说明接口地址或模型是空的；也可以先用 <code>?demo=1</code> 看演示。</li>
+        <li><b>密钥安全吗？</b> 只存在本机 localStorage，只发给你自己填的那个地址；调试面板显示的请求头会打码。</li>
+        <li><b>换了浏览器配置和角色就没了？</b> 数据都在浏览器本地，换浏览器 / 清缓存 / 无痕模式都会丢。</li>
+        <li><b>能和另外两个页面同时用吗？</b> 不能，BLE 是单连接，同一台设备同一时间只能被一个页面控制。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
 <script>
-  // 入口页：两个入口按钮 → 各自的二级菜单弹窗
+  // 入口页：三个入口按钮 → 各自的二级菜单弹窗
   function showMenu() { document.getElementById('menuOverlay').style.display = 'flex'; }
   function hideMenu() { document.getElementById('menuOverlay').style.display = 'none'; }
   function showTutorial() { document.getElementById('tutorialOverlay').style.display = 'flex'; }
@@ -267,6 +361,12 @@
   function hideWaveTutorial() { document.getElementById('waveTutorialOverlay').style.display = 'none'; }
   function openWaveTutorialFromMenu() { hideWaveMenu(); showWaveTutorial(); }
 
+  function showAiMenu() { document.getElementById('aiMenuOverlay').style.display = 'flex'; }
+  function hideAiMenu() { document.getElementById('aiMenuOverlay').style.display = 'none'; }
+  function showAiTutorial() { document.getElementById('aiTutorialOverlay').style.display = 'flex'; }
+  function hideAiTutorial() { document.getElementById('aiTutorialOverlay').style.display = 'none'; }
+  function openAiTutorialFromMenu() { hideAiMenu(); showAiTutorial(); }
+
   // 进入主页面即弹出的侵权声明
   function showNotice() { document.getElementById('noticeOverlay').style.display = 'flex'; }
   function hideNotice() { document.getElementById('noticeOverlay').style.display = 'none'; }
@@ -275,6 +375,7 @@
     if (e.key !== 'Escape') return;
     hideTutorial(); hideMenu();
     hideWaveTutorial(); hideWaveMenu();
+    hideAiTutorial(); hideAiMenu();
     hideNotice();
   });
 

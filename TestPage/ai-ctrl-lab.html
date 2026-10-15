@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 控制协议试验台</title>
+<script src="../AiControler/js/ctrlproto.js"></script>
+<script src="../WaveControler/presets.js"></script>
+<style>
+  :root{ --bg:#0e0e16; --panel:#14141f; --line:#23233a; --line2:#0f3460; --text:#d8d8e0;
+         --dim:#6b7280; --accent:#a78bfa; --ok:#3ddc97; --no:#ff6b6b; --warn:#fbbf24; }
+  body{ margin:0; background:var(--bg); color:var(--text);
+        font:13px/1.7 Consolas,"Courier New",monospace; padding:16px; }
+  h1{ font-size:16px; color:var(--accent); margin:0 0 4px; font-weight:600; }
+  .sub{ color:var(--dim); font-size:12px; margin:0 0 14px; max-width:900px; }
+  h2{ font-size:13px; color:var(--dim); margin:0 0 8px; font-weight:600; }
+  .grid{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; align-items:start; }
+  @media (max-width:980px){ .grid{ grid-template-columns:minmax(0,1fr); } }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:12px; }
+  .rowline{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .rowline label{ color:var(--dim); font-size:12px; }
+  .btnbar{ display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 0; }
+  button{ background:#1a1a2e; border:1px solid var(--line2); border-radius:5px; color:var(--text);
+          padding:7px 12px; cursor:pointer; font-family:inherit; font-size:13px; }
+  button:hover{ background:#22304d; }
+  button.primary{ background:#0f3460; border-color:#1a5a9a; }
+  button.danger{ background:#3a1a1a; border-color:#7a2a2a; }
+  button:disabled{ opacity:.5; cursor:default; }
+  textarea{ width:100%; box-sizing:border-box; background:#0a0a12; border:1px solid var(--line);
+            color:var(--text); border-radius:5px; padding:9px; font-family:inherit; font-size:12.5px;
+            line-height:1.6; resize:vertical; }
+  #input{ height:210px; }
+  #waves{ height:96px; }
+  select,input[type=text]{ background:#1a1a2e; border:1px solid var(--line2); color:var(--text);
+                           padding:6px 9px; border-radius:4px; font-family:inherit; font-size:12.5px; }
+  pre{ white-space:pre-wrap; word-break:break-word; background:#0a0a12; border:1px solid var(--line);
+       border-radius:6px; padding:12px; margin:0; font-family:inherit; font-size:12.5px; color:#b9c0d4; }
+  code{ background:#1a1a2e; padding:1px 5px; border-radius:3px; color:var(--accent); }
+  .ok{color:var(--ok)} .no{color:var(--no)} .warn{color:var(--warn)} .dim{color:var(--dim)}
+  .accent{color:var(--accent)}
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td{ border:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:top; }
+  th{ background:#1a1a2e; color:var(--dim); font-weight:600; }
+  td.mono{ font-family:inherit; word-break:break-all; }
+  .verdict{ font-size:15px; font-weight:600; margin-bottom:8px; }
+  .tags{ display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .tag{ font-size:11.5px; padding:2px 8px; border-radius:10px; border:1px solid var(--line2); color:var(--dim); }
+  .tag.on{ border-color:#1a5a9a; color:#9ec5ff; background:#0f3460; }
+  .tag.warn{ border-color:#7a5a1a; color:var(--warn); background:#2a2210; }
+  .hint{ color:var(--dim); font-size:11.5px; margin-top:6px; }
+  .note{ margin-top:18px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+         border-radius:4px; font-size:12.5px; color:#aaa; }
+  .note b{ color:var(--text); }
+  .empty{ color:var(--dim); font-size:12.5px; }
+  .flow{ color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+
+<h1>🧪 AI 控制协议试验台</h1>
+<div class="sub">
+  粘贴任意一段 AI 回复，看 <code>AiControler/js/ctrlproto.js</code> 到底怎么理解它 ——
+  围栏定位 / 剥离上屏 / JSON 温和修复 / 字段校验 / 原子拒绝，全程可打点。
+  本页直接加载真实模块，不需要接口、密钥或蓝牙。注意 <b>ctrl 是原子的</b>：任何字段不合法就整块丢弃。
+</div>
+
+<div class="grid">
+  <!-- ============ 左：输入 ============ -->
+  <div>
+    <div class="card">
+      <div class="rowline">
+        <label>边界用例</label>
+        <select id="caseSel"></select>
+        <button id="btnLoadCase">载入</button>
+      </div>
+      <textarea id="input" spellcheck="false" placeholder="把 AI 的回复粘这里…"></textarea>
+      <div class="btnbar">
+        <button class="primary" id="btnParse">▶ 解析（Ctrl+Enter）</button>
+        <button id="btnRunAll">🧾 跑全部用例</button>
+        <button class="danger" id="btnClear">🗑 清空</button>
+      </div>
+      <div class="hint" id="loaded"></div>
+    </div>
+
+    <div class="card">
+      <div class="rowline">
+        <label>已知波形名（每行一个，供 resolveWave 用）</label>
+        <button id="btnResetWaves">↺ 用内置 7 个</button>
+      </div>
+      <textarea id="waves" spellcheck="false"></textarea>
+      <div class="hint">比对用的是真实的 <code>normKey</code>：全角转半角、去掉所有空白、忽略大小写。所以 <code>心跳(双跳)</code> 能匹配上 <code>心跳（双跳）</code>。填了不在列表里的名字会触发 <code>unknown-wave</code>。</div>
+    </div>
+  </div>
+
+  <!-- ============ 右：结果 ============ -->
+  <div>
+    <div class="card">
+      <div id="verdict" class="verdict dim">等待解析…</div>
+      <div class="tags" id="flags"></div>
+    </div>
+
+    <div class="card">
+      <h2>① 围栏定位 findFences / findOpenFence</h2>
+      <div id="fenceOut" class="empty">—</div>
+    </div>
+
+    <div class="card">
+      <h2>② 会被剥离的段 &amp; 最终上屏文本</h2>
+      <div id="stripOut" class="empty">—</div>
+      <pre id="shown" style="margin-top:8px">—</pre>
+      <div class="flow" style="margin-top:4px">上面这块就是用户在气泡里真正看到的内容（围栏块永远不上屏，哪怕内容是垃圾）</div>
+    </div>
+
+    <div class="card">
+      <h2>③ ctrl 校验结果（原子）</h2>
+      <div id="ctrlOut" class="empty">—</div>
+    </div>
+
+    <div class="card">
+      <h2>④ hint / branches（各自独立，不受 ctrl 牵连）</h2>
+      <div id="hbOut" class="empty">—</div>
+    </div>
+
+    <div class="card">
+      <h2>⑤ 错误明细</h2>
+      <div id="errOut" class="empty">—</div>
+    </div>
+
+    <div class="card">
+      <h2>⑥ 分步打点（模块内部函数逐个调用）</h2>
+      <pre id="probe">—</pre>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 全量用例 ============ -->
+<div class="card" id="suiteCard" style="display:none">
+  <h2>🧾 全部用例结果</h2>
+  <div id="suiteOut"></div>
+</div>
+
+<div class="note">
+  <b>这个页面在验什么</b><br>
+  · <b>围栏永远不上屏</b>：剥离和「解析成功」无关 —— 哪怕围栏里是垃圾，也照样从可见文本里删掉。<br>
+  · <b>ctrl 原子拒绝</b>：任何一个字段不合法就整块丢弃，不做「部分生效」，也不做「钳制后执行」（所以 <code>intensity:150</code> 是拒绝，不是夹到 100）。<br>
+  · <b>版本不认识就全丢</b>：<code>v</code> 不是 1 时连 <code>hint</code> / <code>branches</code> 一起丢 —— 字段语义可能已经变了，「只信一半」比「全不信」更危险。<br>
+  · <b>降级接受</b>：<code>```ufo</code> 是权威；没有它时才会看 <code>```json</code> / 无标签围栏（内容里必须有 <code>ctrl</code> 键），最后才找正文里的裸 JSON。<br>
+  · <b>未闭合围栏</b>：流式被截断时从起点截掉，但判断用的是「配对计数」—— 正常的 <code>```js</code> 代码块不会被误判成未闭合。<br>
+  <br>
+  本页加载的是仓库里的真实文件：<code>AiControler/js/ctrlproto.js</code> 与 <code>WaveControler/presets.js</code>，
+  所以它同时也是这个协议的回归测试套件。改完协议记得回来点一次「跑全部用例」。
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var CP = window.AI && window.AI.ctrlproto;
+  var PRESETS = window.UFO_WAVE_PRESETS || [];
+
+  // ---------- 小工具 ----------
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  var FENCE_CN = {
+    none: '未找到控制块', ufo: 'ufo 围栏（权威）', loose: 'json/无标签围栏（降级）',
+    plain: '无标签围栏（降级）', bare: '正文裸 JSON（降级）'
+  };
+  var ERR_CN = {
+    empty: '围栏内容为空', 'bad-json': '不是合法 JSON（去掉尾逗号后仍失败）',
+    'truncated-block': '围栏未闭合（流式截断），已从起点截掉', 'no-block': '没有找到任何控制块',
+    'not-object': '顶层不是对象', 'bad-version': 'v 不是整数', 'unknown-version': 'v 不认识 → 整块作废',
+    'missing-ctrl': '缺 ctrl 键', 'bad-ctrl': 'ctrl 不是对象', 'bad-on': 'on 不是布尔值',
+    'bad-ch': 'ch 不是 A / B / AB', 'bad-wave': 'wave 不是字符串', 'unknown-wave': '波形名解析不出来',
+    'missing-wave': 'on=true 但没给 wave', 'bad-intensity': 'intensity 不是整数',
+    'intensity-out-of-range': 'intensity 不在 0~100', 'missing-intensity': 'on=true 但没给 intensity',
+    'bad-hint': 'hint 不是字符串', 'bad-branches': 'branches 不是数组',
+    'empty-branches': 'branches 里没有可用的字符串'
+  };
+
+  // ---------- 波形白名单 ----------
+  function presetNames() { return PRESETS.map(function (w) { return w.name; }); }
+
+  function resetWaves() { $('waves').value = presetNames().join('\n'); }
+
+  function knownWaves() {
+    return $('waves').value.split('\n').map(function (s) { return s.replace(/^\s+|\s+$/g, ''); })
+      .filter(function (s) { return s; });
+  }
+
+  // 与 AiControler/js/prompt.js 同一套：按 normKey(显示名) 建表，精确匹配
+  function buildResolver() {
+    var byKey = {};
+    knownWaves().forEach(function (name) {
+      if (CP && CP.normKey) byKey[CP.normKey(name)] = name;
+    });
+    return function (name) {
+      var k = CP && CP.normKey ? CP.normKey(name) : String(name);
+      if (Object.prototype.hasOwnProperty.call(byKey, k)) return { name: byKey[k] };
+      return null;
+    };
+  }
+
+  // ---------- 边界用例语料 ----------
+  // expect 里出现哪个键，就校验哪个维度；没写的维度不校验
+  var CASES = [
+    {
+      name: '01 标准控制块（合法）',
+      text: '好，先从轻一点的开始。\n\n```ufo\n{"v":1,"ctrl":{"on":true,"wave":"心跳（双跳）","intensity":45,"ch":"AB"},"hint":"试探着开始","branches":["再快一点","轻一些","先停一下"]}\n```\n',
+      expect: { ok: true, fence: 'ufo', hint: '试探着开始', branches: 3 }
+    },
+    {
+      name: '02 围栏里是垃圾（照样剥离）',
+      text: '这是一段说明。\n\n```ufo\n这里根本不是 JSON，随便写点东西\n```\n后面还有正文。',
+      expect: { ok: false, fence: 'ufo', err: 'bad-json', textHas: '后面还有正文', textNotHas: '根本不是 JSON' }
+    },
+    {
+      name: '03 尾逗号（温和修复一次）',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":30,"ch":"A",},"hint":"修复看看"}\n```',
+      expect: { ok: true, repaired: 'trailing-comma', hint: '修复看看' }
+    },
+    {
+      name: '04 版本不认识 v:2（连 hint 一起丢）',
+      text: '```ufo\n{"v":2,"ctrl":{"on":true,"wave":"方形脉冲","intensity":30,"ch":"A"},"hint":"这条提示也该被丢掉","branches":["也不该留下"]}\n```',
+      expect: { ok: false, err: 'unknown-version', hint: '', branches: 0 }
+    },
+    {
+      name: '05 缺 ctrl 键',
+      text: '```ufo\n{"v":1,"hint":"只有提示，没有控制"}\n```',
+      expect: { ok: false, err: 'missing-ctrl', hint: '只有提示，没有控制' }
+    },
+    {
+      name: '06 on 不是布尔值',
+      text: '```ufo\n{"v":1,"ctrl":{"on":"true","wave":"方形脉冲","intensity":30,"ch":"A"}}\n```',
+      expect: { ok: false, err: 'bad-on' }
+    },
+    {
+      name: '07 强度 150 越界（拒绝，不钳制）',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":150,"ch":"A"}}\n```',
+      expect: { ok: false, err: 'intensity-out-of-range' }
+    },
+    {
+      name: '08 强度 45.5 非整数',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":45.5,"ch":"A"}}\n```',
+      expect: { ok: false, err: 'bad-intensity' }
+    },
+    {
+      name: '09 波形名不存在 → unknown-wave',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true,"wave":"这个波形根本不存在","intensity":50,"ch":"A"}}\n```',
+      expect: { ok: false, err: 'unknown-wave' }
+    },
+    {
+      name: '10 on=true 但没给 wave / intensity',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true}}\n```',
+      expect: { ok: false, err: 'missing-wave' }
+    },
+    {
+      name: '11 ch 写成 "ba" → 归一化成 AB',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":40,"ch":" ba "}}\n```',
+      expect: { ok: true, ctrlCh: 'AB' }
+    },
+    {
+      name: '12 两个 ufo 围栏 → 只用第一个，两个都剥离',
+      text: '第一个：\n```ufo\n{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":20,"ch":"A"},"hint":"第一个"}\n```\n第二个：\n```ufo\n{"v":1,"ctrl":{"on":false},"hint":"第二个不该被采纳"}\n```\n结束。',
+      // 注意：围栏**外的**文字（"第一个：""第二个：""结束。"）都要留在上屏文本里，
+      // 只有围栏块本身被删掉 —— 所以这里断言的是 JSON 正文消失、标签留下。
+      expect: { ok: true, hint: '第一个', textHas: '结束', textHas2: '第二个：', textNotHas: '"v":1' }
+    },
+    {
+      name: '13 裸 JSON（没有围栏）→ 降级接受',
+      text: '我建议这样：{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":35,"ch":"A"},"hint":"裸的"} 就这些。',
+      expect: { ok: true, fence: 'bare', degraded: true, hint: '裸的' }
+    },
+    {
+      name: '14 ```json 围栏且内容有 ctrl → 降级接受',
+      text: '```json\n{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":35,"ch":"A"},"hint":"json 围栏"}\n```',
+      expect: { ok: true, fence: 'loose', degraded: true, hint: 'json 围栏' }
+    },
+    {
+      name: '15 ```json 围栏但没有 ctrl → 不采纳也不剥离',
+      text: '这是一段普通代码示例：\n```json\n{"name":"配置示例","value":123}\n```\n代码块应该原样保留在正文里。',
+      expect: { ok: false, err: 'no-block', textHas: '配置示例', textHas2: '代码块应该原样保留' }
+    },
+    {
+      name: '16 未闭合围栏（流式截断）',
+      text: '正在生成中……\n\n```ufo\n{"v":1,"ctrl":{"on":true,"wave":"方形脉',
+      expect: { ok: false, truncated: true, err: 'truncated-block', textNotHas: '方形脉' }
+    },
+    {
+      name: '17 hint 超过 40 字被截断',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":20,"ch":"A"},"hint":"' +
+            '这是一条特别特别特别特别特别特别特别特别长的提示文字用来验证会不会被截断到四十个字符"}\n```',
+      expect: { ok: true, hintLen: 40 }
+    },
+    {
+      name: '18 branches 超过 4 条只留前 4 条',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true,"wave":"方形脉冲","intensity":20,"ch":"A"},"branches":["一","二","三","四","五","六"]}\n```',
+      expect: { ok: true, branches: 4 }
+    },
+    {
+      name: '19 全角括号 / 多空格 / 大小写都能匹配',
+      text: '```ufo\n{"v":1,"ctrl":{"on":true,"wave":" 心跳(双跳) ","intensity":50,"ch":"ab"}}\n```',
+      expect: { ok: true, ctrlCh: 'AB', waveKey: '心跳(双跳)' }
+    },
+    {
+      name: '20 正常 ```js 代码块 + 后文（不能被误判未闭合）',
+      text: '看看这段代码：\n```js\nvar a = 1;\n```\n然后这里是很重要的正文，绝对不能被吃掉。',
+      expect: { ok: false, err: 'no-block', textHas: '绝对不能被吃掉' }
+    }
+  ];
+
+  // ---------- 渲染 ----------
+  function render(rec, src) {
+    var v = $('verdict'), f = $('flags');
+
+    if (rec.ok) {
+      v.className = 'verdict ok';
+      v.textContent = '✅ 采纳：这条控制会被执行';
+    } else if (rec.hasBlock) {
+      v.className = 'verdict no';
+      v.textContent = '⛔ 拒绝：找到了控制块，但校验没过（整块作废）';
+    } else {
+      v.className = 'verdict no';
+      v.textContent = '⛔ 没有可用的控制块（hint / branches 也不会有）';
+    }
+
+    var tags = [];
+    tags.push('<span class="tag' + (rec.flags.fence !== 'none' ? ' on' : '') + '">围栏：'
+      + esc(FENCE_CN[rec.flags.fence] || rec.flags.fence) + '</span>');
+    if (rec.flags.repaired) tags.push('<span class="tag warn">已修复：' + esc(rec.flags.repaired) + '</span>');
+    if (rec.flags.truncated) tags.push('<span class="tag warn">围栏未闭合（截断）</span>');
+    if (rec.flags.degraded) tags.push('<span class="tag warn">降级接受</span>');
+    tags.push('<span class="tag">ok=' + rec.ok + '</span>');
+    f.innerHTML = tags.join('');
+
+    // ① 围栏
+    var fences = CP.findFences(src);
+    var open = CP.findOpenFence(src);
+    var lines = [];
+    lines.push('findFences → 共 <b>' + fences.length + '</b> 个围栏块');
+    fences.forEach(function (x, i) {
+      var pj = CP.parseJsonLoose(x.body);
+      var isCtrl = ['ufo', 'ufo-control', 'ufo_ctrl', 'ufoctrl'].indexOf(x.tag) >= 0;
+      lines.push('  [' + i + '] tag=<span class="accent">' + esc(x.tag || '(无标签)') + '</span>'
+        + ' 位置=' + x.start + '..' + x.end
+        + ' 控制标签=' + (isCtrl ? '<span class="warn">是</span>' : '否')
+        + ' JSON=' + (pj.err ? '<span class="no">' + esc(pj.err) + '</span>'
+                             : '<span class="ok">可解析</span>' + (pj.repaired ? '（已修复 ' + esc(pj.repaired) + '）' : '')));
+    });
+    lines.push('findOpenFence → ' + (open < 0 ? '没有未闭合的围栏' : '<span class="warn">起点 ' + open + '（未闭合）</span>'));
+    var bare = CP.findBareCtrl(src);
+    lines.push('findBareCtrl → ' + (bare ? '找到裸 JSON，位置 ' + bare.start + '..' + bare.end
+                                        : '没有找到带 ctrl 键的裸 JSON'));
+    $('fenceOut').innerHTML = lines.join('<br>').replace(/&lt;b&gt;/g, '<b>');
+
+    // ② 剥离
+    var strip = [];
+    fences.forEach(function (x) {
+      if (['ufo', 'ufo-control', 'ufo_ctrl', 'ufoctrl'].indexOf(x.tag) >= 0) {
+        strip.push({ start: x.start, end: x.end });
+      }
+    });
+    if (!strip.length) {
+      fences.forEach(function (x) {
+        if (strip.length) return;
+        if (['', 'json', 'jsonc', 'json5'].indexOf(x.tag) < 0) return;
+        var pj = CP.parseJsonLoose(x.body);
+        if (pj.value && typeof pj.value === 'object' && !Array.isArray(pj.value)
+            && Object.prototype.hasOwnProperty.call(pj.value, 'ctrl')) {
+          strip.push({ start: x.start, end: x.end });
+        }
+      });
+    }
+    if (!strip.length && bare) strip.push({ start: bare.start, end: bare.end });
+    if (!strip.length && open >= 0) strip.push({ start: open, end: src.length });
+
+    $('stripOut').innerHTML = strip.length
+      ? '将删除 ' + strip.length + ' 段：' + strip.map(function (r) {
+          return '<code>' + r.start + '..' + r.end + '</code>';
+        }).join(' ')
+      : '<span class="dim">不删除任何内容（没有判定为控制块的段）</span>';
+    $('shown').textContent = rec.text === '' ? '（空）' : rec.text;
+
+    // ③ ctrl
+    if (rec.ctrl) {
+      var c = rec.ctrl;
+      $('ctrlOut').innerHTML =
+        '<table><tr><th>字段</th><th>值</th></tr>' +
+        '<tr><td>on</td><td class="mono ' + (c.on ? 'ok' : 'dim') + '">' + c.on + '</td></tr>' +
+        '<tr><td>wave（AI 原话）</td><td class="mono">' + esc(c.waveKey || '(空)') + '</td></tr>' +
+        '<tr><td>wave（解析到的）</td><td class="mono">' + esc(c.wave && c.wave.name || '(无)') + '</td></tr>' +
+        '<tr><td>intensity</td><td class="mono">' + c.intensity + '</td></tr>' +
+        '<tr><td>aiRatio</td><td class="mono">' + c.aiRatio.toFixed(4) + '</td></tr>' +
+        '<tr><td>ch</td><td class="mono">' + esc(c.ch) + '</td></tr>' +
+        '<tr><td>chans</td><td class="mono">' + esc(c.chans.join(' + ')) + '</td></tr>' +
+        '</table>' +
+        '<div class="hint">真实输出 = aiRatio × 用户在设置里填的「最大强度」，模型永远越不过它。</div>';
+    } else {
+      $('ctrlOut').innerHTML = '<span class="no">ctrl 被整块丢弃</span>'
+        + (rec.errors.length ? '<div class="hint">原因见 ⑤</div>' : '');
+    }
+
+    // ④ hint / branches
+    var hb = [];
+    hb.push('hint → ' + (rec.hint ? '<span class="ok">' + esc(rec.hint) + '</span>'
+                                  : '<span class="dim">（空）</span>'));
+    hb.push('branches → ' + (rec.branches.length
+      ? rec.branches.map(function (b) { return '<code>' + esc(b) + '</code>'; }).join(' ')
+      : '<span class="dim">（无）</span>'));
+    $('hbOut').innerHTML = hb.join('<br>');
+
+    // ⑤ 错误
+    if (!rec.errors.length) {
+      $('errOut').innerHTML = '<span class="ok">没有错误</span>';
+    } else {
+      $('errOut').innerHTML = '<table><tr><th>字段</th><th>错误码</th><th>说明</th><th>got</th></tr>'
+        + rec.errors.map(function (e) {
+            return '<tr><td class="mono">' + esc(e.field || '(顶层)') + '</td>'
+              + '<td class="mono no">' + esc(e.code) + '</td>'
+              + '<td>' + esc(ERR_CN[e.code] || '—') + '</td>'
+              + '<td class="mono dim">' + (e.got === undefined ? '' : esc(JSON.stringify(e.got))) + '</td></tr>';
+          }).join('') + '</table>';
+    }
+
+    // ⑥ 打点
+    var pb = [];
+    pb.push('CP.VERSION      = ' + CP.VERSION + '   MAX_HINT=' + CP.MAX_HINT
+      + '  MAX_BRANCH=' + CP.MAX_BRANCH + '  MAX_BRANCHES=' + CP.MAX_BRANCHES);
+    pb.push('输入长度        = ' + src.length + ' 字符');
+    pb.push('hasBlock        = ' + rec.hasBlock + '   ok = ' + rec.ok);
+    pb.push('上屏文本长度    = ' + rec.text.length + ' 字符（原始 ' + src.length + '）');
+    fences.forEach(function (x, i) {
+      pb.push('fence[' + i + '].body  = ' + JSON.stringify(x.body.length > 120 ? x.body.slice(0, 120) + '…' : x.body));
+    });
+    if (rec.hasBlock) {
+      var blockObj = (function () {
+        var fs = CP.findFences(src), t = null, i;
+        for (i = 0; i < fs.length; i++) {
+          if (['ufo', 'ufo-control', 'ufo_ctrl', 'ufoctrl'].indexOf(fs[i].tag) >= 0) { t = fs[i]; break; }
+        }
+        if (t) return CP.parseJsonLoose(t.body).value;
+        for (i = 0; i < fs.length; i++) {
+          if (['', 'json', 'jsonc', 'json5'].indexOf(fs[i].tag) < 0) continue;
+          var r = CP.parseJsonLoose(fs[i].body);
+          if (r.value && typeof r.value === 'object' && !Array.isArray(r.value)
+              && Object.prototype.hasOwnProperty.call(r.value, 'ctrl')) return r.value;
+        }
+        return null;
+      })();
+      if (blockObj) {
+        var vb = CP.validateBlock(blockObj, { resolveWave: buildResolver() });
+        pb.push('validateBlock   = ctrl:' + (vb.ctrl ? 'ok' : 'null')
+          + '  hint:' + JSON.stringify(vb.hint)
+          + '  branches:' + vb.branches.length
+          + '  errors:' + (vb.errors.length ? vb.errors.map(function (e) { return e.code; }).join(',') : '无'));
+      }
+    }
+    pb.push('已知波形 key    = ' + knownWaves().map(function (n) { return CP.normKey(n); }).join(' | '));
+    $('probe').textContent = pb.join('\n');
+  }
+
+  // ---------- 单次解析 ----------
+  function doParse() {
+    if (!CP) { $('verdict').textContent = '❌ ctrlproto.js 没加载成功'; $('verdict').className = 'verdict no'; return; }
+    var src = $('input').value;
+    var rec;
+    try {
+      rec = CP.parse(src, { resolveWave: buildResolver() });
+    } catch (e) {
+      $('verdict').className = 'verdict no';
+      $('verdict').textContent = '解析抛异常：' + (e && e.message || e);
+      return;
+    }
+    render(rec, src);
+  }
+
+  // ---------- 全量用例 ----------
+  function runAll() {
+    if (!CP) return;
+    var rows = [], pass = 0;
+    CASES.forEach(function (c) {
+      var rec, err = '';
+      try { rec = CP.parse(c.text, { resolveWave: buildResolver() }); }
+      catch (e) { err = String(e && e.message || e); }
+      var fails = [];
+      if (err) { fails.push('抛异常：' + err); }
+      else {
+        var x = c.expect;
+        if (x.ok !== undefined && rec.ok !== x.ok) fails.push('ok 期望 ' + x.ok + ' 实际 ' + rec.ok);
+        if (x.fence !== undefined && rec.flags.fence !== x.fence) fails.push('fence 期望 ' + x.fence + ' 实际 ' + rec.flags.fence);
+        if (x.repaired !== undefined && rec.flags.repaired !== x.repaired) fails.push('repaired 期望 ' + x.repaired + ' 实际 ' + rec.flags.repaired);
+        if (x.truncated !== undefined && rec.flags.truncated !== x.truncated) fails.push('truncated 期望 ' + x.truncated + ' 实际 ' + rec.flags.truncated);
+        if (x.degraded !== undefined && rec.flags.degraded !== x.degraded) fails.push('degraded 期望 ' + x.degraded + ' 实际 ' + rec.flags.degraded);
+        if (x.hint !== undefined && rec.hint !== x.hint) fails.push('hint 期望 ' + JSON.stringify(x.hint) + ' 实际 ' + JSON.stringify(rec.hint));
+        if (x.hintLen !== undefined && rec.hint.length !== x.hintLen) fails.push('hint 长度期望 ' + x.hintLen + ' 实际 ' + rec.hint.length);
+        if (x.branches !== undefined && rec.branches.length !== x.branches) fails.push('branches 数期望 ' + x.branches + ' 实际 ' + rec.branches.length);
+        if (x.ctrlCh !== undefined && (!rec.ctrl || rec.ctrl.ch !== x.ctrlCh)) fails.push('ctrl.ch 期望 ' + x.ctrlCh + ' 实际 ' + (rec.ctrl ? rec.ctrl.ch : 'null'));
+        if (x.waveKey !== undefined && (!rec.ctrl || rec.ctrl.waveKey !== x.waveKey)) fails.push('waveKey 期望 ' + JSON.stringify(x.waveKey));
+        if (x.err !== undefined) {
+          var codes = rec.errors.map(function (e) { return e.code; });
+          if (codes.indexOf(x.err) < 0) fails.push('错误码期望含 ' + x.err + '，实际 ' + (codes.join(',') || '无'));
+        }
+        if (x.textHas !== undefined && rec.text.indexOf(x.textHas) < 0) fails.push('上屏文本应包含 ' + JSON.stringify(x.textHas));
+        if (x.textHas2 !== undefined && rec.text.indexOf(x.textHas2) < 0) fails.push('上屏文本应包含 ' + JSON.stringify(x.textHas2));
+        if (x.textNotHas !== undefined && rec.text.indexOf(x.textNotHas) >= 0) fails.push('上屏文本不该包含 ' + JSON.stringify(x.textNotHas));
+      }
+      if (!fails.length) pass++;
+      rows.push({ name: c.name, ok: !fails.length, fails: fails });
+    });
+
+    var html = '<div class="verdict ' + (pass === CASES.length ? 'ok' : 'no') + '">'
+      + (pass === CASES.length ? '✅ ' : '⚠ ') + pass + ' / ' + CASES.length + ' 通过</div>'
+      + '<table><tr><th style="width:44%">用例</th><th style="width:70px">结果</th><th>差异</th></tr>'
+      + rows.map(function (r) {
+          return '<tr><td>' + esc(r.name) + '</td><td class="' + (r.ok ? 'ok' : 'no') + '">'
+            + (r.ok ? '通过' : '失败') + '</td><td class="dim">' + esc(r.fails.join('；')) + '</td></tr>';
+        }).join('') + '</table>';
+    $('suiteOut').innerHTML = html;
+    $('suiteCard').style.display = '';
+    $('suiteCard').scrollIntoView({ block: 'nearest' });
+  }
+
+  // ---------- 初始化 ----------
+  function init() {
+    if (!CP) {
+      $('verdict').className = 'verdict no';
+      $('verdict').textContent = '❌ 没能加载 ../AiControler/js/ctrlproto.js';
+      $('btnParse').disabled = true;
+      $('btnRunAll').disabled = true;
+      return;
+    }
+    resetWaves();
+
+    var sel = $('caseSel');
+    CASES.forEach(function (c, i) {
+      var o = document.createElement('option');
+      o.value = String(i); o.textContent = c.name;
+      sel.appendChild(o);
+    });
+
+    function loadCase() {
+      var c = CASES[parseInt(sel.value, 10) || 0];
+      if (!c) return;
+      $('input').value = c.text;
+      $('loaded').textContent = '已载入：' + c.name;
+      doParse();
+    }
+
+    sel.addEventListener('change', loadCase);
+    $('btnLoadCase').addEventListener('click', loadCase);
+    $('btnParse').addEventListener('click', doParse);
+    $('btnRunAll').addEventListener('click', runAll);
+    $('btnClear').addEventListener('click', function () {
+      $('input').value = ''; $('loaded').textContent = '';
+      $('verdict').className = 'verdict dim'; $('verdict').textContent = '等待解析…';
+      ['flags', 'fenceOut', 'stripOut', 'ctrlOut', 'hbOut', 'errOut'].forEach(function (id) {
+        $(id).innerHTML = '<span class="empty">—</span>';
+      });
+      $('shown').textContent = '—'; $('probe').textContent = '—';
+      $('suiteCard').style.display = 'none';
+    });
+    $('btnResetWaves').addEventListener('click', function () { resetWaves(); doParse(); });
+    $('input').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doParse(); }
+    });
+
+    loadCase();
+  }
+
+  init();
+})();
+</script>
+
+</body>
+</html>

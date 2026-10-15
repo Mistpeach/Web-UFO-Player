@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>波形导入预览</title>
+<!-- 真实解析器：WC.format.parseText / fromCSV / expandJSON / toCSV / sampleScaled -->
+<script src="../WaveControler/js/format.js"></script>
+<style>
+  :root{ --bg:#0f1729; --panel:#16213e; --line:#0f3460; --text:#e0e0e0; --dim:#8899aa;
+         --accent:#a78bfa; --ok:#3ddc97; --no:#ff6b6b; --warn:#fbbf24; }
+  body{ background:var(--bg); color:var(--text); font-family:system-ui,"Microsoft YaHei",sans-serif;
+        max-width:900px; margin:0 auto; padding:28px 20px 60px; line-height:1.7; }
+  h1{ font-size:1.5rem; color:var(--accent); margin:0 0 6px; }
+  .sub{ color:var(--dim); font-size:13px; margin:0 0 18px; }
+  h2{ font-size:14px; color:var(--dim); font-weight:600; margin:0 0 8px; }
+  .btnbar{ display:flex; gap:10px; flex-wrap:wrap; margin:0 0 14px; }
+  button{ padding:9px 18px; font-size:14px; border-radius:6px; cursor:pointer; font-family:inherit;
+          border:1px solid var(--line); background:var(--panel); color:var(--text); }
+  button:hover{ background:var(--line); }
+  button.primary{ border:none; background:linear-gradient(135deg,#533483,#a855f7); color:#fff; }
+  button.primary:hover{ opacity:.88; }
+  button:disabled{ opacity:.5; cursor:default; }
+  .drop{ border:2px dashed var(--line); border-radius:10px; padding:26px 18px; text-align:center;
+         color:var(--dim); font-size:14px; transition:border-color .2s, background .2s; cursor:pointer; }
+  .drop.over{ border-color:var(--accent); background:#1a1a2e; color:var(--text); }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:12px; }
+  .row{ display:flex; gap:12px; align-items:baseline; padding:8px 12px; border-radius:6px;
+        background:var(--panel); border:1px solid var(--line); margin-bottom:6px; }
+  .k{ flex:0 0 200px; color:var(--dim); font-size:13px; }
+  .v{ flex:1; min-width:0; font-family:Consolas,"Courier New",monospace; font-size:13.5px; word-break:break-all; }
+  .ok{color:var(--ok)} .no{color:var(--no)} .warn{color:var(--warn)} .dim{color:var(--dim)}
+  code{ background:#1a1a2e; padding:1px 5px; border-radius:3px; color:var(--accent); }
+  pre{ white-space:pre-wrap; word-break:break-word; background:#0d1424; border:1px solid var(--line);
+       border-radius:6px; padding:12px; margin:0; font-family:Consolas,"Courier New",monospace;
+       font-size:12.5px; color:#c0c0c0; max-height:320px; overflow:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ border:1px solid var(--line); padding:6px 9px; text-align:left; vertical-align:top; }
+  th{ background:#1a1a2e; color:var(--dim); font-weight:600; }
+  td.mono{ font-family:Consolas,"Courier New",monospace; font-size:12.5px; }
+  .loss{ padding:9px 12px; border-radius:6px; margin-bottom:6px; font-size:13px; line-height:1.65; }
+  .loss.warn{ background:#2a2210; border:1px solid #7a5a1a; color:#ffd98a; }
+  .loss.info{ background:#131c30; border:1px solid var(--line); color:#9fb0c8; }
+  .loss .tag{ font-weight:600; margin-right:6px; }
+  canvas{ width:100%; height:150px; display:block; background:#0d1424;
+          border:1px solid var(--line); border-radius:6px; }
+  .legend{ display:flex; gap:16px; font-size:12px; color:var(--dim); margin-top:6px; }
+  .swatch{ display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+  details{ margin-top:8px; }
+  summary{ cursor:pointer; color:var(--dim); font-size:13px; }
+  .note{ margin-top:18px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+         border-radius:4px; font-size:13px; color:#aaa; }
+  .note b{ color:var(--text); }
+  @media (max-width:620px){ .k{ flex-basis:100%; } .row{ flex-wrap:wrap; gap:2px; } }
+</style>
+</head>
+<body>
+
+<h1>🔍 波形导入预览</h1>
+<div class="sub">
+  导入 <code>.csv</code> / <code>.json</code> 波形前先看清楚会发生什么 ——
+  用的就是页面真正在用的解析器 <code>WaveControler/js/format.js</code>，
+  这里会把「转换会不会丢东西」逐条摆出来。纯前端、双击可开。
+</div>
+
+<div class="btnbar">
+  <button class="primary" id="btnPick">📂 选择文件</button>
+  <button id="btnSample5">🧪 示例：5 列（左右不同）</button>
+  <button id="btnSample3">🧪 示例：3 列（左右同步）</button>
+  <button id="btnSampleBad">🧪 示例：会触发全部警告</button>
+  <button id="btnClear">🗑 清空</button>
+</div>
+
+<label class="drop" id="drop">
+  把 <b>.csv</b> 或 <b>.json</b> 波形文件拖到这里，或点一下选择文件
+  <input type="file" id="file" accept=".csv,.json,.txt" style="display:none">
+</label>
+
+<div class="card" id="resultCard" style="display:none;margin-top:14px">
+  <div id="verdict" style="font-size:15px;font-weight:600;margin-bottom:10px"></div>
+  <div id="summary"></div>
+</div>
+
+<div class="card" id="lossCard" style="display:none">
+  <h2>⚠ 转换会不会丢东西（原样来自解析器的 warnings）</h2>
+  <div id="lossList"></div>
+</div>
+
+<div class="card" id="statCard" style="display:none">
+  <h2>解析结果</h2>
+  <div id="statOut"></div>
+</div>
+
+<div class="card" id="waveCard" style="display:none">
+  <h2>波形预览（按 50ms 采样绘制）</h2>
+  <canvas id="cv"></canvas>
+  <div class="legend">
+    <span><span class="swatch" style="background:#3ddc97"></span>A 通道</span>
+    <span><span class="swatch" style="background:#e05fd8"></span>B 通道</span>
+    <span>上 = 正转，下 = 反转，中线 = 停</span>
+  </div>
+</div>
+
+<div class="card" id="csvCard" style="display:none">
+  <h2>归一化后的 CSV（往返结果）</h2>
+  <div class="dim" style="font-size:12.5px;margin-bottom:8px">
+    这是程序内部表示再导出成 CSV 的样子。和你的原文件对比一下，就能看出量化/夹取/方向转换发生在哪里。
+  </div>
+  <pre id="csvOut"></pre>
+  <div class="btnbar" style="margin-top:10px">
+    <button id="btnDl">📤 导出为 JSON（可直接导入波形控制器）</button>
+  </div>
+</div>
+
+<div class="note">
+  <b>为什么要有这个页面</b><br>
+  程序底层统一使用 JSON（<code>ufo-wave/1</code>），CSV 只是交换格式，导入时是<b>有损转换</b>：
+  时间按 0.1 秒量化、方向列 <code>1</code> 变成负值、超过 ±127 会被夹取、3 列格式会让 A/B 完全相同、
+  正好落在循环结束点的末尾断点不会被播放。这些在导入之后才发现就晚了 ——
+  这个页面让你在导入<b>之前</b>看到全部提示。<br><br>
+  <b>文件头可以用 <code>#</code> 写指令</b>：例如 <code>#unit=s</code> 表示时间戳以秒为单位（默认是 0.1 秒）。
+  导出时程序也会写上 <code>#unit=0.1s</code>。
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var F = window.WC && window.WC.format;
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ---------------- 示例数据 ----------------
+  var SAMPLES = {
+    s5: { name: '示例-5列.csv', text:
+      '# 5 列：时间戳(0.1s) | 左方向(0正/1反) | 左速度 | 右方向 | 右速度\n' +
+      '0,0,100,0,100\n' +
+      '5,0,100,1,60\n' +
+      '10,1,80,0,100\n' +
+      '20,0,40,0,40\n' +
+      '30,0,0,0,0\n' },
+    s3: { name: '示例-3列.csv', text:
+      '# 3 列：时间戳(0.1s) | 方向(0正/1反) | 速度 —— A/B 会完全相同\n' +
+      '0,0,110\n' +
+      '8,1,90\n' +
+      '16,0,50\n' +
+      '24,0,0\n' },
+    bad: { name: '示例-会触发全部警告.csv', text:
+      '# 故意写坏：超上限、方向=1、正好落在结束点的末尾断点、夹杂坏行\n' +
+      '0,0,200,1,150\n' +
+      '\n' +
+      '不是数字,0,50\n' +
+      '10,1,90,0,400\n' +
+      '20,0,30,1,30\n' +
+      '30,0,30,1,30\n' }
+  };
+
+  // ---------------- 主流程 ----------------
+  var current = null;   // { waves, warnings, source }
+
+  function reset() {
+    current = null;
+    ['resultCard', 'lossCard', 'statCard', 'waveCard', 'csvCard'].forEach(function (id) {
+      $(id).style.display = 'none';
+    });
+  }
+
+  function parse(text, filename) {
+    if (!F) {
+      $('resultCard').style.display = '';
+      $('verdict').className = 'no';
+      $('verdict').textContent = '❌ 没能加载 ../WaveControler/js/format.js';
+      $('summary').innerHTML = '';
+      return;
+    }
+    reset();
+    var r;
+    try {
+      r = F.parseText(text, { filename: filename || '' });
+    } catch (e) {
+      $('resultCard').style.display = '';
+      $('verdict').className = 'no';
+      $('verdict').textContent = '❌ 解析失败：' + (e && e.message || e);
+      $('summary').innerHTML = '<div class="dim">解析器连一个可用波形都没拿到，所以不会有任何东西被导入。'
+        + '常见原因：JSON 语法错误、CSV 少于 3 列、里面没有可解析的数据行。</div>';
+      return;
+    }
+    current = r;
+    render(text, filename);
+  }
+
+  function render(text, filename) {
+    var r = current;
+    var waves = r.waves || [];
+    var warns = r.warnings || [];
+
+    // 结论
+    $('resultCard').style.display = '';
+    var hardWarns = warns.filter(function (w) { return w.level === 'warn'; }).length;
+    var v = $('verdict');
+    if (!waves.length) {
+      v.className = 'no';
+      v.textContent = '❌ 没有解析出任何波形';
+    } else if (hardWarns) {
+      v.className = 'warn';
+      v.textContent = '⚠ 能导入，但有 ' + hardWarns + ' 条需要注意的提示（见下）';
+    } else {
+      v.className = 'ok';
+      v.textContent = '✅ 可以导入，解析器没有报出需要注意的问题';
+    }
+
+    var sum = [];
+    sum.push('<div class="row"><span class="k">来源判定</span><span class="v">'
+      + esc(r.source === 'csv' ? 'CSV（按分隔符解析）' : 'JSON（' + (waves[0] && waves[0].format || '?') + '）')
+      + '</span></div>');
+    sum.push('<div class="row"><span class="k">文件名</span><span class="v">'
+      + esc(filename || '(未提供，名称会用默认值)') + '</span></div>');
+    sum.push('<div class="row"><span class="k">解析出的波形数</span><span class="v">'
+      + waves.length + '</span></div>');
+    sum.push('<div class="row"><span class="k">原文件大小</span><span class="v">'
+      + text.length + ' 字符 / ' + (function () {
+          var b = 0, i;
+          for (i = 0; i < text.length; i++) { b += text.charCodeAt(i) < 128 ? 1 : 3; }
+          return b < 1024 ? b + ' B' : (b / 1024).toFixed(1) + ' KB';
+        })() + '</span></div>');
+    $('summary').innerHTML = sum.join('');
+
+    // 损失提示
+    $('lossCard').style.display = '';
+    if (!warns.length) {
+      $('lossList').innerHTML = '<div class="dim">解析器没有给出任何提示。</div>';
+    } else {
+      $('lossList').innerHTML = warns.map(function (w) {
+        var lv = w.level === 'warn' ? 'warn' : 'info';
+        return '<div class="loss ' + lv + '"><span class="tag">'
+          + (lv === 'warn' ? '⚠ 注意' : 'ℹ 说明') + '</span>' + esc(w.text) + '</div>';
+      }).join('');
+    }
+
+    // 统计
+    $('statCard').style.display = '';
+    var rows = ['<table><tr><th>项目</th><th>值</th></tr>'];
+    waves.forEach(function (w, wi) {
+      var dpA = (w.channels && w.channels.A ? w.channels.A.length : 0);
+      var dpB = (w.channels && w.channels.B ? w.channels.B.length : 0);
+      var pkA = F.peakOf ? F.peakOf(w, 'A') : '—';
+      var pkB = F.peakOf ? F.peakOf(w, 'B') : '—';
+      var same = JSON.stringify(w.channels && w.channels.A) === JSON.stringify(w.channels && w.channels.B);
+      rows.push('<tr><td colspan="2" class="accent" style="color:var(--accent)">波形 #' + (wi + 1) + '</td></tr>');
+      rows.push('<tr><td>名称</td><td class="mono">' + esc(w.name) + '</td></tr>');
+      rows.push('<tr><td>循环时长</td><td class="mono">' + esc(w.duration) + ' 秒</td></tr>');
+      rows.push('<tr><td>插值模式</td><td class="mono">' + esc(w.mode) + (w.mode === 'hold' ? '（阶梯保持）' : '（线性）') + '</td></tr>');
+      rows.push('<tr><td>基线 base</td><td class="mono">' + esc(w.base) + '</td></tr>');
+      rows.push('<tr><td>断点数 A / B</td><td class="mono">' + dpA + ' / ' + dpB
+        + (same ? ' <span class="warn">（两通道完全相同 —— 3 列或 2 列格式的特征）</span>' : '') + '</td></tr>');
+      rows.push('<tr><td>峰值 A / B</td><td class="mono">' + esc(pkA) + ' / ' + esc(pkB) + '</td></tr>');
+      rows.push('<tr><td>format</td><td class="mono">' + esc(w.format) + '</td></tr>');
+    });
+    rows.push('</table>');
+    $('statOut').innerHTML = rows.join('');
+
+    // 波形图
+    $('waveCard').style.display = waves.length ? '' : 'none';
+    if (waves.length) draw(waves[0]);
+
+    // 往返 CSV
+    $('csvCard').style.display = waves.length ? '' : 'none';
+    if (waves.length) {
+      try { $('csvOut').textContent = F.toCSV(waves[0]); }
+      catch (e) { $('csvOut').textContent = '(toCSV 失败：' + (e && e.message || e) + ')'; }
+    }
+  }
+
+  function draw(w) {
+    var cv = $('cv');
+    var dpr = window.devicePixelRatio || 1;
+    var wpx = cv.clientWidth || 800, hpx = 150;
+    cv.width = Math.round(wpx * dpr);
+    cv.height = Math.round(hpx * dpr);
+    var g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, wpx, hpx);
+
+    var mid = hpx / 2;
+    // 网格：±127 边界 + 中线 + 1/4 线
+    g.strokeStyle = 'rgba(15,52,96,0.9)';
+    g.lineWidth = 1;
+    [0.25, 0.5, 0.75].forEach(function (k) {
+      g.beginPath(); g.moveTo(0, hpx * k); g.lineTo(wpx, hpx * k); g.stroke();
+    });
+    g.strokeStyle = 'rgba(83,52,131,0.9)';
+    g.beginPath(); g.moveTo(0, mid); g.lineTo(wpx, mid); g.stroke();
+
+    var dur = (w.duration > 0 ? w.duration : 1);
+    var steps = Math.min(2000, Math.max(120, Math.round(dur * 120)));
+    ['A', 'B'].forEach(function (ch, ci) {
+      g.strokeStyle = ci === 0 ? '#3ddc97' : '#e05fd8';
+      g.lineWidth = 1.6;
+      g.beginPath();
+      var i, t, val, x, y;
+      for (i = 0; i <= steps; i++) {
+        t = dur * i / steps;
+        try { val = F.sampleScaled(w, ch, t, 1); } catch (e) { val = 0; }
+        x = wpx * i / steps;
+        y = mid - (val / 127) * (mid - 6);
+        if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.stroke();
+    });
+
+    g.fillStyle = '#6b7280';
+    g.font = '11px Consolas, monospace';
+    g.fillText('0s', 3, hpx - 4);
+    var lbl = dur + 's';
+    g.fillText(lbl, wpx - g.measureText(lbl).width - 3, hpx - 4);
+    g.fillText('+127', 3, 12);
+    g.fillText('-127', 3, hpx - 16);
+  }
+
+  // ---------------- 事件 ----------------
+  function loadText(text, filename) {
+    $('resultCard').style.display = '';
+    $('verdict').className = 'dim';
+    $('verdict').textContent = '解析中…';
+    parse(text, filename);
+  }
+
+  $('btnPick').addEventListener('click', function () { $('file').click(); });
+  $('file').addEventListener('change', function () {
+    var f = $('file').files && $('file').files[0];
+    if (!f) return;
+    f.text().then(function (t) { loadText(t, f.name); })
+      .catch(function (e) { alert('读取失败：' + (e && e.message || e)); });
+  });
+
+  $('drop').addEventListener('click', function (e) {
+    if (e.target !== $('file')) $('file').click();
+  });
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    $('drop').addEventListener(ev, function (e) { e.preventDefault(); $('drop').classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    $('drop').addEventListener(ev, function (e) { e.preventDefault(); $('drop').classList.remove('over'); });
+  });
+  $('drop').addEventListener('drop', function (e) {
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    f.text().then(function (t) { loadText(t, f.name); })
+      .catch(function (err) { alert('读取失败：' + (err && err.message || err)); });
+  });
+
+  $('btnSample5').addEventListener('click', function () { loadText(SAMPLES.s5.text, SAMPLES.s5.name); });
+  $('btnSample3').addEventListener('click', function () { loadText(SAMPLES.s3.text, SAMPLES.s3.name); });
+  $('btnSampleBad').addEventListener('click', function () { loadText(SAMPLES.bad.text, SAMPLES.bad.name); });
+
+  $('btnClear').addEventListener('click', function () {
+    reset(); $('file').value = '';
+  });
+
+  $('btnDl').addEventListener('click', function () {
+    if (!current || !current.waves || !current.waves.length) return;
+    var one = current.waves.length === 1 ? current.waves[0]
+      : (F.bundleOf ? F.bundleOf(current.waves) : { waves: current.waves });
+    var blob = new Blob([JSON.stringify(one, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (current.waves[0].name || 'wave') + '.json';
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  });
+
+  window.addEventListener('resize', function () {
+    if (current && current.waves && current.waves.length && $('waveCard').style.display !== 'none') {
+      draw(current.waves[0]);
+    }
+  });
+
+  // 开局先跑一个示例，免得页面看起来是坏的
+  loadText(SAMPLES.s5.text, SAMPLES.s5.name);
+})();
+</script>
+
+</body>
+</html>

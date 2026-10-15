@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>急停时间窗验证</title>
+<style>
+  :root{ --bg:#0f1729; --panel:#16213e; --line:#0f3460; --text:#e0e0e0; --dim:#8899aa;
+         --accent:#a78bfa; --ok:#3ddc97; --no:#ff6b6b; --warn:#fbbf24; }
+  body{ background:var(--bg); color:var(--text); font-family:system-ui,"Microsoft YaHei",sans-serif;
+        max-width:860px; margin:0 auto; padding:28px 20px 60px; line-height:1.7; }
+  h1{ font-size:1.5rem; color:var(--accent); margin:0 0 6px; }
+  .sub{ color:var(--dim); font-size:13px; margin:0 0 18px; }
+  h2{ font-size:14px; color:var(--dim); font-weight:600; margin:0 0 10px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:12px; }
+  .row{ display:flex; gap:12px; align-items:baseline; padding:8px 12px; border-radius:6px;
+        background:var(--panel); border:1px solid var(--line); margin-bottom:6px; }
+  .k{ flex:0 0 210px; color:var(--dim); font-size:13px; }
+  .v{ flex:1; min-width:0; font-family:Consolas,"Courier New",monospace; font-size:13.5px; word-break:break-all; }
+  .ok{color:var(--ok)} .no{color:var(--no)} .warn{color:var(--warn)} .dim{color:var(--dim)}
+  code{ background:#1a1a2e; padding:1px 5px; border-radius:3px; color:var(--accent); }
+  pre{ white-space:pre-wrap; word-break:break-word; background:#0d1424; border:1px solid var(--line);
+       border-radius:6px; padding:12px; margin:0; font-family:Consolas,"Courier New",monospace;
+       font-size:12.5px; color:#c0c0c0; max-height:280px; overflow:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ border:1px solid var(--line); padding:6px 9px; text-align:left; vertical-align:top; }
+  th{ background:#1a1a2e; color:var(--dim); font-weight:600; }
+  td.mono{ font-family:Consolas,"Courier New",monospace; font-size:12.5px; }
+  .btnbar{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  button{ padding:9px 18px; font-size:14px; border-radius:6px; cursor:pointer; font-family:inherit;
+          border:1px solid var(--line); background:var(--panel); color:var(--text); }
+  button:hover{ background:var(--line); }
+  button.primary{ border:none; background:linear-gradient(135deg,#533483,#a855f7); color:#fff; }
+  button.primary:hover{ opacity:.88; }
+  button:disabled{ opacity:.5; cursor:default; }
+  #stopBtn{ font-size:16px; padding:16px 20px; width:100%; border:1px solid var(--line);
+            background:#2a1a1a; color:#ff9d9d; font-weight:600; transition:background .15s, border-color .15s, color .15s; }
+  #stopBtn:hover{ background:#3a1a1a; }
+  #stopBtn.confirm{ background:linear-gradient(135deg,#a11,#ff4444); border-color:#ff6b6b; color:#fff;
+                    animation:pulse .5s ease-in-out infinite alternate; }
+  @keyframes pulse{ from{ filter:brightness(1); } to{ filter:brightness(1.35); } }
+  .state{ display:inline-block; padding:2px 9px; border-radius:10px; font-size:12px;
+          border:1px solid var(--line); color:var(--dim); }
+  .state.on{ border-color:#1a5a9a; background:#0f3460; color:#9ec5ff; }
+  .state.hot{ border-color:#7a2a2a; background:#3a1a1a; color:#ff9d9d; }
+  .note{ margin-top:18px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+         border-radius:4px; font-size:13px; color:#aaa; }
+  .note b{ color:var(--text); }
+  .note code{ color:var(--accent); }
+  @media (max-width:620px){ .k{ flex-basis:100%; } .row{ flex-wrap:wrap; gap:2px; } }
+</style>
+</head>
+<body>
+
+<h1>⏹ 急停时间窗验证</h1>
+<div class="sub">
+  急停是「0.8 秒内连点两次」才生效的防误触设计。这个窗口用手工根本点不准，
+  所以这里把 <code>WaveControler/js/ui.js</code> 里的状态机原样复刻出来，
+  再用自动化的点击序列去验证边界行为，顺便量一下浏览器定时器的真实误差。
+</div>
+
+<!-- ============ ① 交互复现 ============ -->
+<div class="card">
+  <h2>① 交互复现（和真实实现同一套状态机）</h2>
+  <div class="rowline" style="margin-bottom:12px">
+    <span class="dim" style="font-size:13px;margin-right:10px">模拟引擎状态：</span>
+    <span class="state" id="runState">已停止</span>
+    <button id="btnToggleRun" style="padding:5px 12px;font-size:13px">切换运行/停止</button>
+  </div>
+  <button id="stopBtn">⏹ 急 停（连点两次）</button>
+  <div class="row" style="margin-top:12px">
+    <span class="k">arm 状态</span><span class="v" id="armState">未待确认</span>
+  </div>
+  <div class="row"><span class="k">引擎状态</span><span class="v" id="engState">已停止</span></div>
+  <div class="row"><span class="k">急停触发次数</span><span class="v" id="fireCount">0</span></div>
+  <pre id="log" style="margin-top:10px">点上面的按钮试试。引擎「已停止」时单击一次就会立刻归零；「运行中」时必须 0.8 秒内连点两次。</pre>
+</div>
+
+<!-- ============ ② 自动断言 ============ -->
+<div class="card">
+  <h2>② 自动验证时间窗（每次约 5 秒）</h2>
+  <div class="btnbar">
+    <button class="primary" id="btnAuto">▶ 开始自动测试</button>
+  </div>
+  <div id="autoOut" class="dim">尚未测试。</div>
+</div>
+
+<!-- ============ ③ 定时器精度 ============ -->
+<div class="card">
+  <h2>③ 浏览器 setTimeout(800) 的真实误差</h2>
+  <div class="dim" style="font-size:12.5px;margin-bottom:10px">
+    时间窗是靠 <code>setTimeout(clearStopArm, 800)</code> 关掉的。
+    如果定时器实际偏差很大，真实的窗口就不是 800ms。下面连续采样 40 次。
+  </div>
+  <div class="btnbar"><button id="btnTimer">⏱ 采样 40 次</button></div>
+  <div id="timerOut" class="dim">尚未采样。</div>
+</div>
+
+<div class="note">
+  <b>真实实现（原文照抄自 WaveControler/js/ui.js:368-388）</b><br>
+  <code>STOP_WINDOW_MS = 800</code>，状态是 <code>{ armed, timer }</code>：<br>
+  · 引擎<b>没在运行</b>时点一次 → 直接归零，不需要确认（没有误触风险）<br>
+  · 引擎<b>运行中</b>第一次点击 → 只 arm + 按钮高亮 + 提示，<b>不归零</b><br>
+  · arm 状态下第二次点击 → 清除 arm 并归零<br>
+  · arm 后 800ms 内没有第二次点击 → <code>setTimeout</code> 自动解除 arm<br><br>
+  <b>为什么不用 <code>ondblclick</code></b>：触屏上 <code>dblclick</code> 不可靠，
+  所以用「两次 click + 时间窗」自己实现。<br><br>
+  <b>本页无法覆盖的部分</b>（需要真机 / 真服务器，别把这里的通过当成全部安全验证）：<br>
+  · 急停<b>闩锁</b>：急停后 AI/远程的控制会被拒绝，必须由被控方点「恢复」才解除<br>
+  · 与主控<b>失联超过 8 秒</b> → 被控方立即安全停机（但这是临时停机，链路恢复会自动继续）<br>
+  · 主控关闭页面时会发 <code>bye</code>，被控方立即停机且不锁定<br>
+  · 被控方急停<b>永远可用且优先级最高</b>，主控无权解除<br>
+  这几条的正确性要在真实双端环境里验证（见 <code>remote-selftest.html</code> 与 <code>sync-trace.html</code>）。
+</div>
+
+<script>
+(function () {
+  'use strict';
+  function $(id) { return document.getElementById(id); }
+
+  // ============================================================
+  // ① 与 WaveControler/js/ui.js 同一套逻辑（逐句对应，便于比对）
+  // ============================================================
+  var STOP_WINDOW_MS = 800;
+  var stopArm = { armed: false, timer: null };
+  var engRunning = false;
+  var fireCount = 0;
+
+  function logLine(s) {
+    var el = $('log');
+    el.textContent = (el.textContent + '\n' + s).split('\n').slice(-40).join('\n');
+    el.scrollTop = el.scrollHeight;
+  }
+  function renderState() {
+    $('armState').textContent = stopArm.armed ? '已待确认（等待第二次点击）' : '未待确认';
+    $('armState').className = 'v ' + (stopArm.armed ? 'warn' : 'dim');
+    $('engState').textContent = engRunning ? '运行中（输出中）' : '已停止';
+    $('engState').className = 'v ' + (engRunning ? 'ok' : 'dim');
+    $('fireCount').textContent = String(fireCount);
+    $('runState').textContent = engRunning ? '运行中' : '已停止';
+    $('runState').className = 'state' + (engRunning ? ' on' : '');
+  }
+
+  function clearStopArm() {
+    stopArm.armed = false;
+    if (stopArm.timer) { clearTimeout(stopArm.timer); stopArm.timer = null; }
+    $('stopBtn').classList.remove('confirm');
+    renderState();
+  }
+
+  function emergencyStop() {
+    fireCount++;
+    engRunning = false;
+    logLine('⛔ 急停生效：已归零（第 ' + fireCount + ' 次）');
+    renderState();
+  }
+
+  function requestStop() {
+    if (!engRunning) {                 // 没在输出，无需确认
+      logLine('点击 → 引擎本来就没运行，直接归零');
+      emergencyStop();
+      return;
+    }
+    if (stopArm.armed) {               // 第二次点击，在窗口内
+      logLine('点击 → 命中确认窗口，立即归零');
+      clearStopArm();
+      emergencyStop();
+      return;
+    }
+    stopArm.armed = true;
+    $('stopBtn').classList.add('confirm');
+    logLine('点击 → 已待确认，请在 ' + STOP_WINDOW_MS + 'ms 内再点一次');
+    renderState();
+    stopArm.timer = setTimeout(function () {
+      logLine('⏱ ' + STOP_WINDOW_MS + 'ms 内没有第二次点击，已自动解除待确认');
+      clearStopArm();
+    }, STOP_WINDOW_MS);
+  }
+
+  $('stopBtn').addEventListener('click', requestStop);
+  $('btnToggleRun').addEventListener('click', function () {
+    engRunning = !engRunning;
+    logLine('引擎状态切换为：' + (engRunning ? '运行中' : '已停止'));
+    if (!engRunning) clearStopArm();
+    renderState();
+  });
+
+  // ============================================================
+  // ② 自动断言
+  // ============================================================
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  async function runAuto() {
+    var btn = $('btnAuto');
+    btn.disabled = true;
+    $('autoOut').innerHTML = '<span class="dim">测试中…（每步都要等真实定时器，约 5 秒）</span>';
+
+    var results = [];
+    function check(name, expected, actual, note) {
+      var pass = expected === actual;
+      results.push({ name: name, expected: expected, actual: actual, pass: pass, note: note || '' });
+    }
+
+    // 步骤 1：引擎停止时单击 → 立即归零
+    engRunning = false; clearStopArm(); fireCount = 0;
+    requestStop();
+    check('引擎停止时单击一次', '立即归零', fireCount === 1 ? '立即归零' : (fireCount === 0 ? '没有归零' : '归零 ' + fireCount + ' 次'));
+
+    // 步骤 2：引擎运行时单击一次 → 只 arm，不归零
+    engRunning = true; clearStopArm(); fireCount = 0;
+    requestStop();
+    check('引擎运行时单击一次', '只待确认、不归零',
+      (stopArm.armed && fireCount === 0) ? '只待确认、不归零'
+        : (fireCount ? '错误地直接归零了' : '没有进入待确认'));
+    clearStopArm();
+
+    // 步骤 3：间隔 250ms 双击 → 归零
+    engRunning = true; clearStopArm(); fireCount = 0;
+    requestStop();
+    await sleep(250);
+    requestStop();
+    check('引擎运行时，间隔 250ms 连点两次', '归零', fireCount === 1 ? '归零' : '归零 ' + fireCount + ' 次（期望 1）');
+    clearStopArm();
+
+    // 步骤 4：间隔 1200ms 双击 → 不归零（第一次已超时解除）
+    engRunning = true; clearStopArm(); fireCount = 0;
+    requestStop();
+    await sleep(1200);
+    requestStop();
+    check('间隔 1200ms（超出 800ms 窗口）连点两次', '不归零，只是重新待确认',
+      (fireCount === 0 && stopArm.armed) ? '不归零，只是重新待确认'
+        : (fireCount ? '错误地归零了 ' + fireCount + ' 次' : '状态异常'));
+    clearStopArm();
+
+    // 步骤 5：arm 后窗口内不再点 → 自动解除
+    engRunning = true; clearStopArm(); fireCount = 0;
+    requestStop();
+    await sleep(1000);
+    check('待确认后 1000ms 内不再点', '自动解除待确认',
+      (!stopArm.armed && fireCount === 0) ? '自动解除待确认'
+        : (fireCount ? '错误地归零了' : '仍然停在待确认'));
+
+    // 步骤 6：700ms 内双击（窗口内侧、留出定时器抖动余量）
+    engRunning = true; clearStopArm(); fireCount = 0;
+    requestStop();
+    await sleep(700);
+    requestStop();
+    check('间隔 700ms（窗口内侧）连点两次', '归零', fireCount === 1 ? '归零' : '归零 ' + fireCount + ' 次（期望 1）');
+    clearStopArm();
+
+    // 收尾
+    engRunning = false; fireCount = 0; clearStopArm();
+
+    var pass = results.filter(function (r) { return r.pass; }).length;
+    var html = '<div style="font-size:15px;font-weight:600;margin-bottom:10px" class="'
+      + (pass === results.length ? 'ok' : 'no') + '">'
+      + (pass === results.length ? '✅ ' : '⚠ ') + pass + ' / ' + results.length + ' 通过</div>';
+    html += '<table><tr><th style="width:42%">用例</th><th style="width:26%">期望</th><th style="width:26%">实际</th><th>结果</th></tr>';
+    results.forEach(function (r) {
+      html += '<tr><td>' + r.name + '</td><td class="dim">' + r.expected + '</td>'
+        + '<td class="' + (r.pass ? 'ok' : 'no') + '">' + r.actual + '</td>'
+        + '<td class="' + (r.pass ? 'ok' : 'no') + '">' + (r.pass ? '通过' : '失败') + '</td></tr>';
+    });
+    html += '</table>';
+    html += '<div class="dim" style="margin-top:10px">注意：这里刻意用 700ms / 1200ms 而不是紧贴 800ms，'
+      + '因为「恰好 800ms」在真实浏览器里是竞态（定时器回调与第二次点击谁先执行不确定）。'
+      + '这正是防误触窗口不该被当成精确秒表的原因。</div>';
+    $('autoOut').innerHTML = html;
+    btn.disabled = false;
+  }
+  $('btnAuto').addEventListener('click', function () { runAuto(); });
+
+  // ============================================================
+  // ③ 定时器精度采样
+  // ============================================================
+  function measureTimer() {
+    var N = 40, out = [], i = 0;
+    var btn = $('btnTimer');
+    btn.disabled = true;
+    $('timerOut').innerHTML = '<span class="dim">采样中…</span>';
+    function once() {
+      var t0 = performance.now();
+      setTimeout(function () {
+        out.push(performance.now() - t0);
+        i++;
+        if (i < N) { once(); return; }
+        out.sort(function (a, b) { return a - b; });
+        var min = out[0], max = out[out.length - 1];
+        var mid = out[Math.floor(out.length / 2)];
+        var avg = out.reduce(function (a, b) { return a + b; }, 0) / out.length;
+        var drift = mid - 800;
+        var html = '<div class="row"><span class="k">目标</span><span class="v">800 ms</span></div>'
+          + '<div class="row"><span class="k">实测中位数</span><span class="v">' + mid.toFixed(1) + ' ms</span></div>'
+          + '<div class="row"><span class="k">实测最小 / 最大</span><span class="v">' + min.toFixed(1) + ' / ' + max.toFixed(1) + ' ms</span></div>'
+          + '<div class="row"><span class="k">平均</span><span class="v">' + avg.toFixed(1) + ' ms</span></div>'
+          + '<div class="row"><span class="k">中位数偏差</span><span class="v ' + (Math.abs(drift) <= 20 ? 'ok' : 'warn') + '">'
+          + (drift >= 0 ? '+' : '') + drift.toFixed(1) + ' ms</span></div>'
+          + '<div class="row"><span class="k">真实窗口大致范围</span><span class="v">'
+          + min.toFixed(0) + ' ~ ' + max.toFixed(0) + ' ms</span></div>';
+        $('timerOut').innerHTML = html;
+        btn.disabled = false;
+      }, 800);
+    }
+    once();
+  }
+  $('btnTimer').addEventListener('click', measureTimer);
+
+  renderState();
+})();
+</script>
+
+</body>
+</html>

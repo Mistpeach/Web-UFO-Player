@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>房间生命周期验证</title>
+<style>
+  :root{ --bg:#0e0e16; --panel:#14141f; --line:#23233a; --line2:#0f3460; --text:#d8d8e0;
+         --dim:#6b7280; --accent:#a78bfa; --ok:#3ddc97; --no:#ff6b6b; --warn:#fbbf24; }
+  body{ margin:0; background:var(--bg); color:var(--text);
+        font:13px/1.7 Consolas,"Courier New",monospace; padding:16px; }
+  h1{ font-size:16px; color:var(--accent); margin:0 0 4px; font-weight:600; }
+  .sub{ color:var(--dim); font-size:12px; margin:0 0 14px; max-width:960px; }
+  h2{ font-size:13px; color:var(--dim); margin:0 0 8px; font-weight:600; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:12px; }
+  .rowline{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .rowline label{ color:var(--dim); font-size:12px; }
+  .btnbar{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  button{ background:#1a1a2e; border:1px solid var(--line2); border-radius:5px; color:var(--text);
+          padding:7px 12px; cursor:pointer; font-family:inherit; font-size:13px; }
+  button:hover{ background:#22304d; }
+  button.primary{ background:#0f3460; border-color:#1a5a9a; }
+  button.danger{ background:#3a1a1a; border-color:#7a2a2a; }
+  button:disabled{ opacity:.5; cursor:default; }
+  input[type=text]{ background:#1a1a2e; border:1px solid var(--line2); color:var(--text);
+                    padding:7px 10px; border-radius:4px; font-family:inherit; font-size:13px; }
+  #url{ flex:1; min-width:260px; }
+  pre{ white-space:pre-wrap; word-break:break-word; background:#0a0a12; border:1px solid var(--line);
+       border-radius:6px; padding:12px; margin:0; font-family:inherit; font-size:12.5px;
+       color:#b9c0d4; max-height:420px; overflow:auto; }
+  code{ background:#1a1a2e; padding:1px 5px; border-radius:3px; color:var(--accent); }
+  .ok{color:var(--ok)} .no{color:var(--no)} .warn{color:var(--warn)} .dim{color:var(--dim)}
+  .accent{color:var(--accent)}
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td{ border:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:top; }
+  th{ background:#1a1a2e; color:var(--dim); font-weight:600; }
+  td.mono{ word-break:break-all; }
+  .big{ font-size:15px; font-weight:600; margin-bottom:8px; }
+  .hintbox{ padding:10px 12px; border-radius:6px; border:1px solid #7a5a1a; background:#2a2210;
+            color:var(--warn); font-size:12.5px; margin-bottom:10px; }
+  .note{ margin-top:18px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+         border-radius:4px; font-size:12.5px; color:#aaa; }
+  .note b{ color:var(--text); }
+</style>
+</head>
+<body>
+
+<h1>🚪 房间生命周期验证</h1>
+<div class="sub">
+  对着一个<b>真实的中继服务器</b>跑一遍完整剧本：建房 → 加入 → 第三人被拒 → 业务消息转发 →
+  延迟测量 → 非法房号 → 主动离开。每一步都断言服务器返回的消息类型与字段，
+  并按 <code>RemoteServer/PROTOCOL.md</code> 核对。
+</div>
+
+<div class="card">
+  <div class="rowline">
+    <label>服务器地址</label>
+    <input type="text" id="url" placeholder="wss://你的域名  或  127.0.0.1:8787" value="">
+    <button id="btnNorm">规范化</button>
+  </div>
+  <div class="dim" id="normOut" style="font-size:12px;margin-bottom:10px">
+    只填主机名也行，会自动补 <code>ws://</code> 与 <code>/ws</code>。
+  </div>
+  <div class="btnbar">
+    <button class="primary" id="btnRun">▶ 跑完整剧本</button>
+    <button id="btnHealth">🩺 健康检查</button>
+    <button class="danger" id="btnAbort" disabled>⏹ 中止</button>
+    <button id="btnClear">🗑 清空</button>
+  </div>
+  <div id="verdict" class="big dim">等待开始。</div>
+  <div id="steps"></div>
+</div>
+
+<div class="card">
+  <h2>报文流水（收发的原始 JSON 帧）</h2>
+  <pre id="log">点「跑完整剧本」开始。</pre>
+</div>
+
+<div class="note">
+  <b>这个剧本覆盖了什么</b><br>
+  · <code>create</code> → <code>created</code>：房号是 <b>8 位数字</b>，建房者角色固定 <code>slave</code>（被控方）<br>
+  · <code>join</code> → <code>joined</code>：加入者角色固定 <code>master</code>（主控方）；建房方应收到 <code>peer event:"joined"</code><br>
+  · <b>第三人 join → <code>error room-full</code></b>：v3.0 修过的致命坑 —— 以前第三人会看到「已进入房间」然后永远卡住，
+    因为把「WebSocket 握手成功」当成了「已经进了房间」。现在服务器拒绝时只回一条 error 且不关连接，
+    客户端必须区分 opened 与 joined。<br>
+  · <code>relay</code> → 对端 <code>relay</code>：payload 必须<b>逐字不变</b>，只额外补 <code>s</code> 与 <code>from</code><br>
+  · <code>ping</code> → <code>pong</code>：<code>c</code> 必须原样带回，否则客户端算不出 RTT<br>
+  · 非法房号 → <code>error bad-room</code>；不存在的房号 → <code>error room-not-found</code><br>
+  · <code>leave</code> → 对端收到 <code>peer event:"left"</code>（<b>对被控端是安全关键</b>：收到即立即安全停机）<br><br>
+  <b>没覆盖的（需要真实设备和更长时间）</b><br>
+  · 房间空闲 10 分钟后的回收（<code>room.idleMs</code>）—— 跑一轮要等十分钟，不适合放这里<br>
+  · 消息分片（超过 8KB 的业务消息）。协议规定每片都是独立的 <code>relay</code>，服务器不感知分片<br>
+  · 限流（每 IP 每分钟 10 次建房/加入）—— 本剧本只建房 2 次左右，不会触发<br>
+  · 业务层语义（<code>state</code> / <code>ack</code> / <code>stop</code> / <code>bye</code> / <code>resume</code>）属于客户端之间的事，
+    服务器只做透明转发；那部分见 <code>remote-selftest.html</code> 与 <code>sync-trace.html</code><br><br>
+  <b>没有服务器怎么办</b>：<code>RemoteServer/</code> 目录里有完整部署教程（含 Docker、systemd、nginx/Caddy 反代示例）。
+  只想本地验证的话，也可以直接用波形控制器里的「本地调试模式」（BroadcastChannel，不需要服务器）。
+</div>
+
+<script>
+(function () {
+  'use strict';
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  var T = window.RT || { STEPS: [], running: false };
+
+  // ---------------- 地址规范化 ----------------
+  function normalize(raw) {
+    var s = String(raw || '').replace(/^\s+|\s+$/g, '');
+    if (!s) return { ok: false, why: '地址是空的' };
+    var scheme = '';
+    var m = /^([a-zA-Z][\w+.-]*):\/\//.exec(s);
+    if (m) {
+      scheme = m[1].toLowerCase();
+      s = s.slice(m[0].length);
+    } else {
+      scheme = (s.indexOf('localhost') === 0 || /^127\./.test(s) || /^192\.168\./.test(s)) ? 'ws' : 'wss';
+    }
+    if (['ws', 'wss', 'http', 'https'].indexOf(scheme) < 0) {
+      return { ok: false, why: '不支持的协议：' + scheme + '（只接受 ws / wss / http / https）' };
+    }
+    var ws = (scheme === 'http') ? 'ws' : (scheme === 'https' ? 'wss' : scheme);
+    var hostPath = s.replace(/\/+$/, '');
+    var path = '';
+    var slash = hostPath.indexOf('/');
+    if (slash >= 0) { path = hostPath.slice(slash); hostPath = hostPath.slice(0, slash); }
+    if (!hostPath) return { ok: false, why: '缺少主机名' };
+    if (!path || path === '/') path = '/ws';
+    var wsUrl = ws + '://' + hostPath + path;
+    var httpScheme = (ws === 'wss') ? 'https' : 'http';
+    var healthPath = path.replace(/\/ws$/, '/health');
+    if (healthPath === path) healthPath = '/health';
+    return { ok: true, ws: wsUrl, health: httpScheme + '://' + hostPath + healthPath, host: hostPath };
+  }
+
+  function showNorm() {
+    var r = normalize($('url').value);
+    if (!r.ok) {
+      $('normOut').innerHTML = '<span class="no">✗ ' + esc(r.why) + '</span>';
+      return null;
+    }
+    $('normOut').innerHTML = 'WebSocket → <span class="accent">' + esc(r.ws) + '</span>'
+      + '　健康检查 → <span class="accent">' + esc(r.health) + '</span>';
+    return r;
+  }
+  $('btnNorm').addEventListener('click', showNorm);
+  $('url').addEventListener('input', function () { /* 不自动刷，避免打字时闪 */ });
+
+  // ---------------- 连接封装 ----------------
+  function Conn(name, url) {
+    this.name = name;
+    this.url = url;
+    this.frames = [];
+    this.listeners = [];
+    this.closed = false;
+    var self = this;
+    this.ws = new WebSocket(url);
+    this.opened = new Promise(function (resolve, reject) {
+      self.ws.onopen = function () { log(self.name, '↗', 'WebSocket 已打开 ' + url); resolve(); };
+      self.ws.onerror = function () { reject(new Error('连接失败（地址不通或被拒绝）')); };
+    });
+    this.ws.onmessage = function (ev) {
+      var f;
+      try { f = JSON.parse(ev.data); }
+      catch (e) { log(self.name, '↙', '(非 JSON)' + ev.data); return; }
+      self.frames.push(f);
+      log(self.name, '↙', JSON.stringify(f));
+      self.listeners.slice().forEach(function (fn) { try { fn(f); } catch (e) { } });
+    };
+    this.ws.onclose = function (ev) {
+      self.closed = true;
+      log(self.name, '✕', '连接关闭 code=' + ev.code + (ev.reason ? ' reason=' + ev.reason : ''));
+    };
+  }
+  Conn.prototype.send = function (obj) {
+    if (this.closed) { log(this.name, '!', '连接已关闭，发送被跳过'); return; }
+    log(this.name, '↗', JSON.stringify(obj));
+    try { this.ws.send(JSON.stringify(obj)); } catch (e) { log(this.name, '!', '发送失败：' + e.message); }
+  };
+  // 等一条满足条件的帧；timeoutMs 内没等到就 reject
+  Conn.prototype.next = function (pred, ms, label) {
+    var self = this;
+    ms = ms || 5000;
+    return new Promise(function (resolve, reject) {
+      var start = self.frames.length;
+      var done = false;
+      function scan() {
+        for (var i = start; i < self.frames.length; i++) {
+          if (pred(self.frames[i])) { finish(null, self.frames[i]); return; }
+        }
+      }
+      function onFrame() { scan(); }
+      function finish(err, val) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        var k = self.listeners.indexOf(onFrame);
+        if (k >= 0) self.listeners.splice(k, 1);
+        if (err) reject(err); else resolve(val);
+      }
+      var timer = setTimeout(function () {
+        finish(new Error('超时 ' + ms + 'ms 未等到：' + (label || '期望的消息')));
+      }, ms);
+      self.listeners.push(onFrame);
+      scan();
+    });
+  };
+  Conn.prototype.close = function () { try { this.ws.close(); } catch (e) { } };
+
+  // ---------------- 日志 ----------------
+  function log(who, dir, text) {
+    var el = $('log');
+    var arrow = dir === '↗' ? '<span class="warn">↗</span>'
+      : dir === '↙' ? '<span class="ok">↙</span>'
+      : dir === '!' ? '<span class="no">!</span>' : '<span class="dim">✕</span>';
+    var line = '<span class="dim">' + new Date().toLocaleTimeString() + '</span> '
+      + '[' + esc(who) + '] ' + arrow + ' ' + esc(text);
+    el.innerHTML += (el.innerHTML ? '\n' : '') + line;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // ---------------- 步骤结果 ----------------
+  var results = [];
+  function step(name, pass, detail) {
+    results.push({ name: name, pass: pass, detail: detail || '' });
+    renderSteps();
+  }
+  function renderSteps() {
+    if (!results.length) { $('steps').innerHTML = ''; return; }
+    var pass = results.filter(function (r) { return r.pass; }).length;
+    var html = '<table><tr><th style="width:46%">步骤</th><th style="width:64px">结果</th><th>说明</th></tr>';
+    results.forEach(function (r) {
+      html += '<tr><td>' + esc(r.name) + '</td><td class="' + (r.pass ? 'ok' : 'no') + '">'
+        + (r.pass ? '通过' : '失败') + '</td><td class="dim">' + esc(r.detail) + '</td></tr>';
+    });
+    html += '</table>';
+    if (pass === results.length) {
+      $('verdict').className = 'big ok';
+      $('verdict').textContent = '✅ ' + pass + ' / ' + results.length + ' 全部通过';
+    } else {
+      $('verdict').className = 'big no';
+      $('verdict').textContent = '⚠ ' + pass + ' / ' + results.length + ' 通过，见下表';
+    }
+    $('steps').innerHTML = html;
+  }
+
+  // ---------------- 健康检查 ----------------
+  $('btnHealth').addEventListener('click', function () {
+    var r = showNorm();
+    if (!r) return;
+    log('health', '↗', 'GET ' + r.health);
+    fetch(r.health, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (j) {
+        log('health', '↙', JSON.stringify(j));
+        var rows = ['<table><tr><th>字段</th><th>值</th></tr>'];
+        ['ok', 'service', 'version', 'protocol', 'uptimeSec', 'rooms', 'connections',
+         'maxMembersPerRoom', 'maxWireBytes'].forEach(function (k) {
+          if (j[k] === undefined) return;
+          rows.push('<tr><td class="mono">' + esc(k) + '</td><td class="mono">' + esc(String(j[k])) + '</td></tr>');
+        });
+        if (j.counters) {
+          Object.keys(j.counters).forEach(function (k) {
+            rows.push('<tr><td class="mono dim">counters.' + esc(k) + '</td><td class="mono dim">'
+              + esc(String(j.counters[k])) + '</td></tr>');
+          });
+        }
+        rows.push('</table>');
+        $('steps').innerHTML = rows.join('');
+        $('verdict').className = 'big ok';
+        $('verdict').textContent = '✅ 服务器在线：' + (j.service || '?') + ' v' + (j.version || '?')
+          + '　房间 ' + j.rooms + ' / 连接 ' + j.connections;
+      })
+      .catch(function (e) {
+        log('health', '!', '失败：' + (e && e.message || e));
+        $('verdict').className = 'big no';
+        $('verdict').textContent = '✗ 健康检查失败：' + (e && e.message || e);
+        $('steps').innerHTML = '<div class="hintbox">连不上 <code>' + esc(r.health) + '</code>。<br>'
+          + '常见原因：地址写错、服务器没起、反向代理没配 <code>/health</code>、'
+          + '或者页面是 <code>https://</code> 而服务器只提供明文 <code>ws://</code>（浏览器会拦）。</div>';
+      });
+  });
+
+  // ---------------- 完整剧本 ----------------
+  var aborted = false;
+  $('btnAbort').addEventListener('click', function () { aborted = true; log('script', '!', '用户中止'); });
+
+  async function runScript() {
+    var r = showNorm();
+    if (!r) return;
+    aborted = false;
+    results.length = 0;
+    $('steps').innerHTML = '';
+    $('verdict').className = 'big dim';
+    $('verdict').textContent = '运行中…';
+    $('btnRun').disabled = true;
+    $('btnAbort').disabled = false;
+
+    var A = null, B = null, C = null;
+    try {
+      function bail() { if (aborted) throw new Error('已中止'); }
+
+      // ---- 1. 建房 ----
+      A = new Conn('A(被控)', r.ws);
+      await A.opened; bail();
+      var t0 = performance.now();
+      A.send({ t: 'create' });
+      var created = await A.next(function (f) { return f.t === 'created' || f.t === 'error'; }, 6000, 'created');
+      bail();
+      if (created.t !== 'created') {
+        step('① create → created', false, '收到 ' + created.t + '：' + (created.code || ''));
+        throw new Error('建房失败，后续步骤无法继续');
+      }
+      var room = created.room;
+      var roomOk = /^\d{8}$/.test(String(room));
+      step('① create → created（房号 8 位数字）', roomOk,
+        'room=' + room + ' role=' + created.role + ' members=' + created.members
+        + '/' + created.maxMembers + '　耗时 ' + (performance.now() - t0).toFixed(0) + 'ms');
+      if (!roomOk) throw new Error('房号格式不对，后续步骤无法继续');
+      step('② 建房者角色 = slave（被控方）', created.role === 'slave', 'role=' + created.role);
+
+      // ---- 2. 加入 ----
+      B = new Conn('B(主控)', r.ws);
+      await B.opened; bail();
+      B.send({ t: 'join', room: room });
+      var joined = await B.next(function (f) { return f.t === 'joined' || f.t === 'error'; }, 6000, 'joined');
+      bail();
+      step('③ join → joined', joined.t === 'joined',
+        joined.t === 'joined' ? ('role=' + joined.role + ' members=' + joined.members) : ('收到 error ' + joined.code));
+      step('④ 加入者角色 = master（主控方）', joined.role === 'master', 'role=' + joined.role);
+
+      var peerJoined = await A.next(function (f) { return f.t === 'peer' && f.event === 'joined'; }, 4000, 'peer joined');
+      bail();
+      step('⑤ 建房方收到 peer event=joined', true,
+        'peerId=' + peerJoined.peerId + ' role=' + peerJoined.role + ' members=' + peerJoined.members);
+
+      // ---- 3. 第三人被拒（v3.0 的关键修复）----
+      C = new Conn('C(第三人)', r.ws);
+      await C.opened; bail();
+      C.send({ t: 'join', room: room });
+      var full = await C.next(function (f) { return f.t === 'error' || f.t === 'joined'; }, 6000, 'room-full');
+      bail();
+      step('⑥ 第三人 join → error room-full（不再"假装连上了"）',
+        full.t === 'error' && full.code === 'room-full',
+        full.t === 'error' ? ('code=' + full.code) : '竟然 joined 成功了（房间上限失效？）');
+      step('⑦ 被拒后连接仍然保持（服务器不关连接）', !C.closed,
+        C.closed ? '连接被关闭了 —— 客户端需要能处理这种情况' : '连接仍打开，客户端据此自行收掉');
+
+      // ---- 4. 业务消息转发 ----
+      var payload = { t: 'hello', version: 1, role: 'master', 中文键: '逐字不变测试', n: 42 };
+      B.send({ t: 'relay', payload: payload });
+      var relayed = await A.next(function (f) { return f.t === 'relay'; }, 5000, 'relay');
+      bail();
+      var same = JSON.stringify(relayed.payload) === JSON.stringify(payload);
+      step('⑧ relay payload 逐字不变', same,
+        same ? '字段与顺序完全一致' : ('原文 ' + JSON.stringify(payload) + ' 实收 ' + JSON.stringify(relayed.payload)));
+      step('⑨ relay 补上 s（服务器时间戳）', typeof relayed.s === 'number', 's=' + relayed.s);
+      // PROTOCOL.md §3.4 的「三条保证」之二写着会补 from（发送者 peerId），
+      // 但 server.js:812 实际只发 {t, s, payload}。这里如实报出来 —— 这正是本页的用途。
+      step('⑩ relay 补上 from（PROTOCOL.md §3.4 承诺）', !!relayed.from,
+        relayed.from ? ('from=' + relayed.from)
+          : '⚠ 服务器没有给 from，只给了 s。PROTOCOL.md §3.4 明确写「只额外添加 s 与 from」，'
+            + '而 server.js 第 812 行构造的是 { t, s, payload }。'
+            + '二人房间里 from 本来就是冗余的（只有对端一个成员），客户端也没有读取它，'
+            + '所以不影响功能 —— 但文档与实现对不上，建议二选一改齐。');
+
+      // ---- 5. 延迟 ----
+      var c = performance.now();
+      B.send({ t: 'ping', c: c });
+      var pong = await B.next(function (f) { return f.t === 'pong'; }, 5000, 'pong');
+      bail();
+      step('⑩ ping → pong 且 c 原样带回', pong.c === c,
+        'c 一致=' + (pong.c === c) + '　RTT≈' + (performance.now() - c).toFixed(1) + 'ms');
+
+      // ---- 6. 非法 / 不存在的房号 ----
+      C.send({ t: 'join', room: 'abc' });
+      var bad = await C.next(function (f) { return f.t === 'error'; }, 5000, 'bad-room');
+      bail();
+      step('⑪ 非法房号 → error bad-room', bad.code === 'bad-room', 'code=' + bad.code);
+
+      C.send({ t: 'join', room: '00000000' });
+      var nf = await C.next(function (f) { return f.t === 'error'; }, 5000, 'room-not-found');
+      bail();
+      step('⑫ 不存在的房号 → error room-not-found', nf.code === 'room-not-found', 'code=' + nf.code);
+
+      // ---- 7. 未知类型 ----
+      C.send({ t: 'definitely-not-a-type' });
+      var bt = await C.next(function (f) { return f.t === 'error'; }, 5000, 'bad-type');
+      bail();
+      step('⑬ 未知消息类型 → error bad-type', bt.code === 'bad-type', 'code=' + bt.code);
+
+      // ---- 8. 离开 ----
+      B.send({ t: 'leave' });
+      var left = await A.next(function (f) { return f.t === 'peer' && f.event === 'left'; }, 6000, 'peer left');
+      bail();
+      step('⑭ leave → 对端收到 peer event=left（被控端据此立即停机）', true,
+        'peerId=' + left.peerId + ' members=' + left.members);
+
+      // ---- 9. 断连（不发 leave）也应触发 left ----
+      // leave 之后房间空出一位，所以 C 现在应该能进来了 —— 顺便验证人数上限会正确回退
+      C.send({ t: 'join', room: room });
+      var cJoined = await C.next(function (f) { return f.t === 'joined' || f.t === 'error'; }, 6000, 'C joined');
+      bail();
+      step('⑮ leave 之后房间空出一位，第三人可以进来了', cJoined.t === 'joined',
+        cJoined.t === 'joined' ? ('members=' + cJoined.members) : ('仍然被拒：' + cJoined.code));
+      C.close();                                    // 直接断开，不发 leave
+      var left2 = await A.next(function (f) { return f.t === 'peer' && f.event === 'left'; }, 6000, 'peer left(断连)');
+      bail();
+      step('⑯ 直接断开（不发 leave）也触发 peer event=left', true, 'members=' + left2.members);
+      step('⑰ 清场', true, 'A / B / C 全部关闭');
+
+    } catch (e) {
+      step('剧本中断', false, String(e && e.message || e));
+    } finally {
+      [A, B, C].forEach(function (x) { if (x) x.close(); });
+      $('btnRun').disabled = false;
+      $('btnAbort').disabled = true;
+      renderSteps();
+      if (!results.length) {
+        $('verdict').className = 'big no';
+        $('verdict').textContent = '✗ 没有产生任何结果';
+      }
+    }
+  }
+
+  $('btnRun').addEventListener('click', runScript);
+  $('btnClear').addEventListener('click', function () {
+    results.length = 0;
+    $('steps').innerHTML = '';
+    $('log').textContent = '点「跑完整剧本」开始。';
+    $('verdict').className = 'big dim';
+    $('verdict').textContent = '等待开始。';
+  });
+
+  // 记住上次填的地址
+  try {
+    var saved = localStorage.getItem('ufo.testpage.roomurl');
+    if (saved) $('url').value = saved;
+  } catch (e) { }
+  $('url').addEventListener('change', function () {
+    try { localStorage.setItem('ufo.testpage.roomurl', $('url').value); } catch (e) { }
+  });
+  showNorm();
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BLE 协议试验台</title>
+<!-- 真机之外的验证：格式模块提供 clamp，ble.js 提供 enc / send / 假通道 -->
+<script src="../WaveControler/js/format.js"></script>
+<script src="../WaveControler/js/ble.js"></script>
+<style>
+  :root{ --bg:#0e0e16; --panel:#14141f; --line:#23233a; --line2:#0f3460; --text:#d8d8e0;
+         --dim:#6b7280; --accent:#a78bfa; --ok:#3ddc97; --no:#ff6b6b; --warn:#fbbf24; }
+  body{ margin:0; background:var(--bg); color:var(--text);
+        font:13px/1.7 Consolas,"Courier New",monospace; padding:16px; }
+  h1{ font-size:16px; color:var(--accent); margin:0 0 4px; font-weight:600; }
+  .sub{ color:var(--dim); font-size:12px; margin:0 0 14px; max-width:920px; }
+  h2{ font-size:13px; color:var(--dim); margin:0 0 10px; font-weight:600; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:12px; }
+  .rowline{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .rowline label{ color:var(--dim); font-size:12px; flex:0 0 92px; }
+  .btnbar{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  button{ background:#1a1a2e; border:1px solid var(--line2); border-radius:5px; color:var(--text);
+          padding:7px 12px; cursor:pointer; font-family:inherit; font-size:13px; }
+  button:hover{ background:#22304d; }
+  button.primary{ background:#0f3460; border-color:#1a5a9a; }
+  button:disabled{ opacity:.5; cursor:default; }
+  input[type=number], input[type=text]{ background:#1a1a2e; border:1px solid var(--line2); color:var(--text);
+                padding:6px 9px; border-radius:4px; font-family:inherit; font-size:13px; }
+  input[type=range]{ width:100%; accent-color:#a855f7; }
+  pre{ white-space:pre-wrap; word-break:break-word; background:#0a0a12; border:1px solid var(--line);
+       border-radius:6px; padding:12px; margin:0; font-family:inherit; font-size:12.5px; color:#b9c0d4; }
+  code{ background:#1a1a2e; padding:1px 5px; border-radius:3px; color:var(--accent); }
+  .ok{color:var(--ok)} .no{color:var(--no)} .warn{color:var(--warn)} .dim{color:var(--dim)}
+  .accent{color:var(--accent)}
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td{ border:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:top; }
+  th{ background:#1a1a2e; color:var(--dim); font-weight:600; }
+  td.mono{ word-break:break-all; }
+  .bytes{ font-size:19px; letter-spacing:2px; color:var(--accent); }
+  .big{ font-size:15px; font-weight:600; }
+  .grid2{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
+  @media (max-width:820px){ .grid2{ grid-template-columns:minmax(0,1fr); } .rowline label{ flex-basis:100%; } }
+  .note{ margin-top:18px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+         border-radius:4px; font-size:12.5px; color:#aaa; }
+  .note b{ color:var(--text); }
+  .hintbox{ padding:10px 12px; border-radius:6px; border:1px solid #7a5a1a; background:#2a2210;
+            color:var(--warn); font-size:12.5px; margin-bottom:10px; }
+</style>
+</head>
+<body>
+
+<h1>📶 BLE 协议试验台</h1>
+<div class="sub">
+  两件事：① 把「两个电机值」编码成真正的 BLE 报文，走的是仓库里真实的
+  <code>WaveControler/js/ble.js</code>（用假通道，不需要真机）；
+  ② 检查 <b>三份重复实现</b>的 BLE 协议有没有漂移 —— <code>ScriptPlayer/app.js</code>、
+  <code>WaveControler/js/ble.js</code>、<code>AiControler/js/ble.js</code>。
+</div>
+
+<!-- ==================== ① 编码台 ==================== -->
+<div class="card">
+  <h2>① 报文编码台（真实模块 + 假通道，无需真机）</h2>
+
+  <div class="grid2">
+    <div>
+      <div class="rowline"><label>A 通道</label>
+        <input type="range" id="rngA" min="-127" max="127" step="1" value="100">
+        <input type="number" id="numA" min="-127" max="127" step="1" value="100" style="width:78px">
+      </div>
+      <div class="rowline"><label>B 通道</label>
+        <input type="range" id="rngB" min="-127" max="127" step="1" value="-64">
+        <input type="number" id="numB" min="-127" max="127" step="1" value="-64" style="width:78px">
+      </div>
+      <div class="rowline">
+        <label>负值 =</label>
+        <span class="dim">反转（不是「减速」）—— 一个字节同时表达方向与速度</span>
+      </div>
+    </div>
+    <div>
+      <div class="dim" style="font-size:12px">实际发出去的 3 个字节</div>
+      <div class="bytes" id="bytes">—</div>
+      <pre id="explain" style="margin-top:8px">—</pre>
+    </div>
+  </div>
+
+  <div class="btnbar" style="margin-top:12px">
+    <button class="primary" id="btnSend">📤 通过 WC.ble.send() 真的发一次（假通道）</button>
+    <button id="btnTable">📋 打印完整映射表</button>
+    <button id="btnRoundTrip">🔁 全量往返自检（-127..127）</button>
+  </div>
+
+  <pre id="sendOut">点上面的按钮试试。假通道只记录字节，不会连接任何设备。</pre>
+</div>
+
+<!-- ==================== ② 一致性 ==================== -->
+<div class="card">
+  <h2>② 三处实现一致性检查</h2>
+  <div id="httpHint"></div>
+  <div class="btnbar">
+    <button class="primary" id="btnCheck">🔍 开始检查</button>
+    <span class="dim" style="align-self:center;font-size:12px">需要 http:// 打开（浏览器禁止 file:// 页面读取文件内容）</span>
+  </div>
+  <div id="checkOut" class="dim">尚未检查。</div>
+</div>
+
+<div class="note">
+  <b>协议事实（三处必须逐字一致）</b><br>
+  · Service <code>40ee0200-63ec-4b7f-8ce7-712efd55b90e</code>，Characteristic <code>40ee0202-63ec-4b7f-8ce7-712efd55b90e</code>，设备名 <code>UFO-TW</code><br>
+  · 报文固定 3 字节：<code>[0x05, enc(A), enc(B)]</code>，用 <code>writeValueWithoutResponse</code> 发出<br>
+  · 编码 <code>enc(v) = v &lt; 0 ? ((~v + 129) &amp; 0xFF) : (v &amp; 0xFF)</code>，解码 <code>dec(b) = b &gt;= 128 ? (128 - b) : b</code><br>
+  · 取值被夹在 ±127 并四舍五入（<code>WControler/js/format.js</code> 的 <code>clamp</code> 与 <code>app.js</code> 的 <code>enc()</code> 保持一致）<br>
+  <br>
+  <b>为什么值得单独检查</b><br>
+  <code>AiControler/AiApp.html</code> 顶部专门用 ⚠ 写了「BLE 协议在三处各有一份实现，改协议必须同时改三处」。
+  之前靠人记，现在靠这个页面：它把三份文件的 Service / Characteristic / 设备名 / 编码公式 / 包前缀 / 写入方式
+  抽取出来逐项比对，任何一项不一致都会红字标出来。<br>
+  <br>
+  <b>为什么 ② 需要 http://</b><br>
+  浏览器不允许 <code>file://</code> 页面用 <code>fetch</code> 读本地文件（同源策略把每个本地文件视为不透明来源）。
+  ① 那半部分不受影响，因为它用的是 <code>&lt;script src&gt;</code>，双击打开就能跑。
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var WC = window.WC || {};
+  var BLE = WC.ble;
+  var FMT = WC.format;
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function hex2(n) { return '0x' + n.toString(16).toUpperCase().padStart(2, '0'); }
+
+  // 从 enc 的定义可以反推出来的解码：b >= 128 时 v = 128 - b
+  function dec(b) { return b >= 128 ? (128 - b) : b; }
+
+  // 没加载到 ble.js 时的兜底，保证编码台依然可用
+  function encFallback(v) { return v < 0 ? ((~v + 129) & 0xFF) : (v & 0xFF); }
+
+  var CANON = {
+    service: '40ee0200-63ec-4b7f-8ce7-712efd55b90e',
+    char: '40ee0202-63ec-4b7f-8ce7-712efd55b90e',
+    device: 'UFO-TW',
+    enc: 'returnv<0?((~v+129)&0xFF):(v&0xFF);'
+  };
+
+  // ---------------- ① 编码台 ----------------
+  function clamp127(v) { return v < -127 ? -127 : (v > 127 ? 127 : v); }
+
+  function currentAB() {
+    var a = clamp127(Math.round(parseFloat($('numA').value) || 0));
+    var b = clamp127(Math.round(parseFloat($('numB').value) || 0));
+    return { a: a, b: b };
+  }
+
+  function encOf(v) {
+    if (BLE && typeof BLE.enc === 'function') return BLE.enc(v);
+    return encFallback(v);
+  }
+
+  function render() {
+    var ab = currentAB();
+    var ea = encOf(ab.a), eb = encOf(ab.b);
+    $('bytes').textContent = hex2(0x05) + ' ' + hex2(ea) + ' ' + hex2(eb);
+
+    var rows = [];
+    rows.push('0x05       包类型（固定）');
+    rows.push(hex2(ea) + '       enc(' + ab.a + ') = ' + ea + '   → 解码回来 ' + dec(ea)
+      + (ab.a < 0 ? '  反转' : (ab.a === 0 ? '  停' : '  正转')));
+    rows.push(hex2(eb) + '       enc(' + ab.b + ') = ' + eb + '   → 解码回来 ' + dec(eb)
+      + (ab.b < 0 ? '  反转' : (ab.b === 0 ? '  停' : '  正转')));
+    rows.push('');
+    var agree = (encOf(ab.a) === encFallback(ab.a)) && (encOf(ab.b) === encFallback(ab.b));
+    rows.push('模块加载：' + (BLE ? 'WC.ble 已加载（用的是真实 enc）' : '未加载，正在用页面内置兜底公式'));
+    rows.push('与内置公式一致：' + (agree ? '是' : '否 —— 说明仓库里的 enc 被改过！'));
+    $('explain').textContent = rows.join('\n');
+  }
+
+  function numToRange(which) {
+    var v = clamp127(Math.round(parseFloat($('num' + which).value) || 0));
+    $('num' + which).value = v;
+    $('rng' + which).value = v;
+    render();
+  }
+  function rangeToNum(which) {
+    var v = parseInt($('rng' + which).value, 10);
+    $('num' + which).value = v;
+    render();
+  }
+
+  ['A', 'B'].forEach(function (w) {
+    $('rng' + w).addEventListener('input', function () { rangeToNum(w); });
+    $('num' + w).addEventListener('input', function () { numToRange(w); });
+  });
+
+  // 假通道：把字节记下来
+  var captured = [];
+  if (BLE && typeof BLE.setMock === 'function') {
+    BLE.setMock({
+      write: function (buf, a, b) { captured.push({ bytes: Array.prototype.slice.call(buf), a: a, b: b }); }
+    });
+  }
+
+  $('btnSend').addEventListener('click', function () {
+    var ab = currentAB();
+    captured.length = 0;
+    var out = [];
+    if (!BLE || typeof BLE.send !== 'function') {
+      out.push('❌ WC.ble 没加载成功，无法调用真实 send()');
+    } else {
+      var ret = BLE.send(ab.a, ab.b);
+      out.push('WC.ble.send(' + ab.a + ', ' + ab.b + ') 已调用');
+      out.push('返回值：' + (ret === null ? 'null（同步路径：假通道或真机 writeValueWithoutResponse 未返回 Promise）'
+                                          : 'Promise（真机异步路径）'));
+      out.push('isReady() = ' + BLE.isReady() + '   isMock() = ' + BLE.isMock());
+      if (captured.length) {
+        var c = captured[captured.length - 1];
+        out.push('');
+        out.push('假通道收到的字节：[' + c.bytes.map(function (x) { return hex2(x); }).join(', ') + ']');
+        out.push('假通道收到的原始值：A=' + c.a + '  B=' + c.b);
+        out.push('解码校验：enc 后的 ' + hex2(c.bytes[1]) + ' → ' + dec(c.bytes[1])
+          + '（应为 ' + ab.a + '）' + (dec(c.bytes[1]) === ab.a ? ' ✅' : ' ❌'));
+        out.push('解码校验：enc 后的 ' + hex2(c.bytes[2]) + ' → ' + dec(c.bytes[2])
+          + '（应为 ' + ab.b + '）' + (dec(c.bytes[2]) === ab.b ? ' ✅' : ' ❌'));
+      } else {
+        out.push('⚠ 假通道没收到任何数据 —— 检查 setMock 是否生效');
+      }
+      out.push('');
+      out.push('累计发送计数 stats.sent = ' + (BLE.stats ? BLE.stats.sent : '—'));
+    }
+    $('sendOut').textContent = out.join('\n');
+  });
+
+  $('btnTable').addEventListener('click', function () {
+    var lines = ['值       dec 编码(hex)  说明', '------   --- --------  ----------------'];
+    var keys = [-127, -100, -64, -1, 0, 1, 64, 100, 127];
+    keys.forEach(function (v) {
+      var e = encOf(v);
+      lines.push(String(v).padStart(6) + '   ' + String(e).padStart(3) + '   ' + hex2(e).padEnd(8)
+        + '  ' + (v < 0 ? '反转' + Math.abs(v) : (v === 0 ? '停' : '正转' + v)));
+    });
+    lines.push('');
+    lines.push('规律：0..127 → 0x00..0x7F 原样；-1..-127 → 0x81..0xFF（~v+129）。');
+    lines.push('注意 0x80(=128) 永远不会出现 —— 它不在值域里。');
+    $('sendOut').textContent = lines.join('\n');
+  });
+
+  $('btnRoundTrip').addEventListener('click', function () {
+    var bad = [], i, e;
+    for (i = -127; i <= 127; i++) {
+      e = encOf(i);
+      if (e < 0 || e > 255 || dec(e) !== i) bad.push(i + '→' + e + '→' + dec(e));
+    }
+    var lines = [];
+    lines.push('对 -127..127 共 255 个值做 enc → dec 往返：');
+    lines.push(bad.length ? ('❌ 有 ' + bad.length + ' 个值往返不一致：' + bad.slice(0, 12).join(', '))
+                          : '✅ 全部 255 个值往返一致（enc 是一一映射，不会丢信息）');
+    lines.push('');
+    lines.push('用的是：' + (BLE ? 'WC.ble.enc（真实模块）' : '页面内置兜底公式'));
+    $('sendOut').textContent = lines.join('\n');
+  });
+
+  // ---------------- ② 三处一致性 ----------------
+  var FILES = [
+    { label: 'ScriptPlayer', url: '../ScriptPlayer/app.js' },
+    { label: 'WaveControler', url: '../WaveControler/js/ble.js' },
+    { label: 'AiControler', url: '../AiControler/js/ble.js' }
+  ];
+
+  function normEncBody(s) {
+    return String(s).replace(/\/\/[^\n]*/g, '').replace(/\s+/g, '').replace(/;+$/, '') + ';';
+  }
+
+  // 三份实现用了三种写法：function 声明 / 箭头函数 / 函数表达式。
+  // 统一抽取成同一种归一化形式再比对，否则会误报。
+  function extractEnc(text) {
+    var m = /function\s+enc\s*\(([^)]*)\)\s*\{([\s\S]*?)\}/.exec(text);
+    if (m) return { sig: m[1].replace(/\s+/g, ''), body: normEncBody(m[2]), style: 'function' };
+
+    m = /(?:const|let|var)\s+enc\s*=\s*(?:\(([^)]*)\)|([A-Za-z_$][\w$]*))\s*=>\s*([^;]+);/.exec(text);
+    if (m) return { sig: String(m[1] || m[2] || '').replace(/\s+/g, ''),
+                    body: normEncBody('return ' + m[3]), style: '箭头函数' };
+
+    m = /\benc\s*=\s*function\s*\(([^)]*)\)\s*\{([\s\S]*?)\}/.exec(text);
+    if (m) return { sig: m[1].replace(/\s+/g, ''), body: normEncBody(m[2]), style: '函数表达式' };
+
+    if (/~\s*\w+\s*\+\s*129/.test(text)) return { sig: '', body: '(内联，含 ~+129 特征)', style: '内联' };
+    return { sig: '', body: '', style: '未找到' };
+  }
+
+  function analyze(text) {
+    var r = {};
+    r.hasService = text.indexOf(CANON.service) >= 0;
+    r.hasChar = text.indexOf(CANON.char) >= 0;
+
+    var m = /DEVICE_NAME\s*=\s*['"]([^'"]+)['"]/.exec(text);
+    r.device = m ? m[1] : (text.indexOf("'" + CANON.device + "'") >= 0
+      || text.indexOf('"' + CANON.device + '"') >= 0 ? CANON.device : '');
+
+    var e = extractEnc(text);
+    r.encSig = e.sig;
+    r.encBody = e.body;
+    r.encStyle = e.style;
+    r.matchesCanon = (e.body === CANON.enc);
+
+    // 包结构：new Uint8Array([0x05, enc(x), enc(y)]) —— 比对「3 字节且以 0x05 开头」
+    m = /new\s+Uint8Array\s*\(\s*\[([^\]]*)\]\s*\)/.exec(text);
+    if (m) {
+      var parts = m[1].split(',').map(function (s) { return s.replace(/\s+/g, ''); });
+      r.packetN = parts.length;
+      r.packetHead = parts[0];
+      r.packetOk = (parts.length === 3 && parts[0] === '0x05');
+      r.packetText = '[' + parts.join(', ') + ']';
+    } else {
+      r.packetOk = /0x05/.test(text);
+      r.packetText = /0x05/.test(text) ? '(含 0x05)' : '(未找到)';
+    }
+
+    r.writeNoResp = /writeValueWithoutResponse/.test(text);
+    r.writePlain = /writeValue\s*\(/.test(text);
+    return r;
+  }
+
+  function showHttpHint(msg) {
+    $('httpHint').innerHTML = '<div class="hintbox">'
+      + (msg ? esc(msg) + '<br>' : '')
+      + '当前是 <b>' + esc(location.protocol) + '</b>，无法读取仓库文件。'
+      + '请在仓库根目录起一个静态服务器再用 http:// 打开本页：<br>'
+      + '<code>python -m http.server 8000</code><br>'
+      + '然后访问 <code>http://127.0.0.1:8000/TestPage/ble-proto.html</code>'
+      + '</div>';
+  }
+
+  $('btnCheck').addEventListener('click', function () {
+    $('checkOut').innerHTML = '<span class="dim">读取中…</span>';
+    $('httpHint').innerHTML = '';
+
+    Promise.all(FILES.map(function (f) {
+      return fetch(f.url, { cache: 'no-store' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.text();
+        })
+        .then(function (t) { return { file: f, text: t, err: '' }; })
+        .catch(function (e) { return { file: f, text: '', err: String(e && e.message || e) }; });
+    })).then(function (results) {
+      var failed = results.filter(function (r) { return r.err; });
+      if (failed.length === results.length) {
+        $('checkOut').innerHTML = '<span class="no">全部读取失败。</span>';
+        showHttpHint(failed[0].err);
+        return;
+      }
+      if (failed.length) showHttpHint('部分文件读取失败：' + failed.map(function (r) { return r.file.label; }).join(', '));
+
+      var rows = [];
+      var allOk = true;
+      var encBodies = [];
+
+      results.forEach(function (r) {
+        if (r.err) { rows.push({ label: r.file.label, a: null }); return; }
+        var a = analyze(r.text);
+        a.label = r.file.label;
+        a.bytes = r.text.length;
+        if (a.encBody) encBodies.push({ label: a.label, body: a.encBody });
+        if (!(a.hasService && a.hasChar && a.device === CANON.device && a.matchesCanon && a.packetOk)) allOk = false;
+        rows.push(a);
+      });
+
+      // 编码公式是否三处完全相同（三种写法已归一化，可以直接比）
+      var encSame = encBodies.length === results.length
+        && encBodies.every(function (x) { return x.body === encBodies[0].body; });
+      if (!encSame) allOk = false;
+
+      var html = '';
+      html += '<div class="big ' + (allOk ? 'ok' : 'no') + '">'
+        + (allOk ? '✅ 三处实现一致' : '⚠ 发现不一致，请逐项核对') + '</div>';
+      html += '<div class="dim" style="margin:4px 0 10px">编码公式三处是否完全相同：'
+        + (encSame ? '<span class="ok">是</span>' : '<span class="no">否</span>') + '</div>';
+
+      html += '<table><tr><th>实现</th><th>Service</th><th>Char</th><th>设备名</th>'
+        + '<th>enc 写法</th><th>归一化后的公式</th><th>包结构</th><th>write 方式</th></tr>';
+      rows.forEach(function (a) {
+        if (!a || a.a === null) {
+          html += '<tr><td>' + esc(a ? a.label : '?') + '</td><td colspan="7" class="no">读取失败</td></tr>';
+          return;
+        }
+        function cell(okFlag, txt) {
+          return '<td class="' + (okFlag ? 'ok' : 'no') + '">' + esc(txt) + '</td>';
+        }
+        html += '<tr><td class="accent">' + esc(a.label) + '</td>'
+          + cell(a.hasService, a.hasService ? '匹配' : '不匹配')
+          + cell(a.hasChar, a.hasChar ? '匹配' : '不匹配')
+          + cell(a.device === CANON.device, a.device || '(未找到)')
+          + '<td class="mono dim">' + esc(a.encStyle + (a.encSig ? '(' + a.encSig + ')' : '')) + '</td>'
+          + cell(a.matchesCanon, a.encBody || '(未找到)')
+          + cell(a.packetOk, a.packetText || '(未找到)')
+          + cell(a.writeNoResp || a.writePlain,
+                 a.writeNoResp ? 'writeValueWithoutResponse' : (a.writePlain ? 'writeValue（注意：语义不同）' : '未找到'))
+          + '</tr>';
+      });
+      html += '</table>';
+
+      html += '<div class="dim" style="margin-top:10px">基准公式（三处归一化后都应该是这个）：<br>'
+        + '<code>' + esc(CANON.enc) + '</code><br>'
+        + '归一化 = 去掉注释与所有空白、统一成 <code>return &lt;表达式&gt;;</code>。'
+        + '三种写法（function 声明 / 箭头函数 / 函数表达式）会被抽成同一形式再比，避免误报。</div>';
+
+      $('checkOut').innerHTML = html;
+    });
+  });
+
+  // ---------------- 启动 ----------------
+  render();
+  if (location.protocol === 'file:') {
+    $('httpHint').innerHTML = '<div class="hintbox">检测到你是用 <code>file://</code> 打开本页的 —— '
+      + '① 编码台可以正常用，但 ② 一致性检查读不到仓库文件（浏览器限制），点检查会给出提示。</div>';
+  }
+})();
+</script>
+
+</body>
+</html>

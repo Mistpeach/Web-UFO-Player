@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>浏览器能力探测</title>
+<style>
+  :root{ --bg:#0f1729; --panel:#16213e; --line:#0f3460; --text:#e0e0e0; --dim:#8899aa;
+         --accent:#a78bfa; --ok:#3ddc97; --no:#ff6b6b; --warn:#fbbf24; }
+  body{ background:var(--bg); color:var(--text); font-family:system-ui,"Microsoft YaHei",sans-serif;
+        max-width:820px; margin:0 auto; padding:28px 20px 60px; line-height:1.7; }
+  h1{ font-size:1.5rem; color:var(--accent); margin:0 0 6px; }
+  .sub{ color:var(--dim); font-size:13px; margin:0 0 18px; }
+  h2{ font-size:14px; color:var(--dim); font-weight:600; margin:22px 0 8px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px; }
+  .row{ display:flex; gap:12px; align-items:baseline; padding:8px 12px; border-radius:6px;
+        background:var(--panel); border:1px solid var(--line); margin-bottom:6px; }
+  .k{ flex:0 0 220px; color:var(--dim); font-size:13px; }
+  .v{ flex:1; min-width:0; font-family:Consolas,"Courier New",monospace; font-size:13.5px; word-break:break-all; }
+  .ok{ color:var(--ok); } .no{ color:var(--no); } .warn{ color:var(--warn); } .dim{ color:var(--dim); }
+  .btnbar{ display:flex; gap:10px; flex-wrap:wrap; margin:4px 0 16px; }
+  button{ padding:9px 18px; font-size:14px; border-radius:6px; cursor:pointer; font-family:inherit;
+          border:1px solid var(--line); background:var(--panel); color:var(--text); }
+  button:hover{ background:var(--line); }
+  button.primary{ border:none; background:linear-gradient(135deg,#533483,#a855f7); color:#fff; }
+  button.primary:hover{ opacity:.88; }
+  button:disabled{ opacity:.5; cursor:default; }
+  #log{ margin-top:12px; padding:12px; background:#0d1424; border:1px solid var(--line); border-radius:6px;
+        font-family:Consolas,"Courier New",monospace; font-size:12.5px; white-space:pre-wrap;
+        min-height:70px; color:#c0c0c0; }
+  .note{ margin-top:22px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+         border-radius:4px; font-size:13px; color:#aaa; }
+  .note b{ color:var(--text); }
+  code{ background:#1a1a2e; padding:1px 5px; border-radius:3px; color:var(--accent); }
+  @media (max-width:620px){ .k{ flex-basis:100%; } .row{ flex-wrap:wrap; gap:2px; } }
+</style>
+</head>
+<body>
+
+<h1>🧪 浏览器能力探测</h1>
+<p class="sub">一页看清当前浏览器与打开方式（file:// 还是 http://）下，哪些功能可用、哪些会降级。</p>
+
+<div class="btnbar">
+  <button id="btnRe" class="primary">🔄 重新探测</button>
+  <button id="btnCopy">📋 复制报告</button>
+</div>
+
+<div id="out"></div>
+<div id="log">准备探测…</div>
+
+<div class="note">
+  <b>1. 为什么 file:// 和 http:// 下能力不同：</b><br>
+  浏览器把 <code>file://</code> 当作<b>不透明来源（opaque origin）</b>：<code>fetch</code> / XHR 读本地文件会被直接拦下，
+  剪贴板 API（<code>navigator.clipboard</code>）在多数宿主里也干脆不暴露或调用即拒绝；<code>showDirectoryPicker</code>
+  等 File System Access 接口同样要求安全上下文。<code>http://127.0.0.1</code> 与 <code>https://</code> 属于安全上下文，
+  这些能力才会正常开放。所以「双击打开」能用和不能用，本质是打开方式决定的，不是浏览器坏了。<br><br>
+
+  <b>2. 文件夹批量导入 / 写出依赖 <code>showDirectoryPicker</code>：</b><br>
+  手机上（Android Chrome / iOS Safari）<b>没有</b>这个接口，无法整目录读写，需要降级成 <code>&lt;input type="file" multiple&gt;</code>
+  的多选文件（必要时加 <code>webkitdirectory</code> 递归选目录），或者逐个文件拖拽导入。<br><br>
+
+  <b>3. 如果蓝牙或文件夹功能不可用：</b><br>
+  在本仓库根目录起一个本地静态服务器，再用 <code>http://127.0.0.1</code> 打开本页即可：<br>
+  <code>python -m http.server 8000</code><br>
+  然后访问 <code>http://127.0.0.1:8000/TestPage/capability-check.html</code>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var out = document.getElementById('out');
+  var log = document.getElementById('log');
+  var btnRe = document.getElementById('btnRe');
+  var btnCopy = document.getElementById('btnCopy');
+
+  // ---------------- 小工具 ----------------
+
+  function errMsg(e) {
+    if (e === null || e === undefined) return String(e);
+    if (typeof e === 'string') return e;
+    return (e.name ? e.name + ' — ' : '') + (e.message || String(e));
+  }
+
+  // 安全取值：任何一项抛错都只影响当前这一行，绝不打断整页
+  function T(fn, onErr) {
+    try { return fn(); } catch (e) { return onErr || ('调用异常: ' + errMsg(e)); }
+  }
+
+  // 安全 typeof：obj 本身不存在时返回 'undefined' 而不是抛错
+  function typeOfProp(obj, prop) {
+    try {
+      if (obj === undefined || obj === null) return 'undefined';
+      return typeof obj[prop];
+    } catch (e) { return '取值异常: ' + errMsg(e); }
+  }
+
+  // 能力类型 → 颜色：函数或布尔属性都算「存在」
+  function clsType(t) { return (t === 'function' || t === 'boolean') ? 'ok' : 'no'; }
+
+  // 日志按「行数组」维护，便于原地刷新汇总行（异步结果回填后要重算）
+  var logLines = [];
+  var logTakenOver = false;   // 手动复制时日志被整块替换，之后不再自动刷新
+
+  function renderLog() { if (!logTakenOver) log.textContent = logLines.join('\n'); }
+  function say(msg) { logLines.push(msg); renderLog(); }
+
+  // 汇总行固定在第 2 行；每次有行变化都重算，避免统计到异步结果之前就定格
+  function refreshSummary() {
+    var bad = out.querySelectorAll('.v.no').length;
+    logLines[1] = bad === 0
+      ? '✅ 探测完成：没有发现不可用项。'
+      : '⚠ 探测完成：有 ' + bad + ' 项显示为不可用/异常（其中一部分在 file:// 下属于预期结果）。';
+    renderLog();
+  }
+
+  // 分组标题（会同时进入复制报告）
+  function head(text) {
+    var h = document.createElement('h2');
+    h.textContent = text;
+    out.appendChild(h);
+  }
+
+  // 追加一行，返回可稍后回填结果的句柄（异步探测用）
+  function row(k, v, cls) {
+    var d = document.createElement('div');
+    d.className = 'row';
+    var kk = document.createElement('span');
+    kk.className = 'k';
+    kk.textContent = k;
+    var vv = document.createElement('span');
+    vv.className = 'v ' + (cls || '');
+    vv.textContent = v;
+    d.appendChild(kk);
+    d.appendChild(vv);
+    out.appendChild(d);
+    return {
+      set: function (text, c) { vv.textContent = text; vv.className = 'v ' + (c || ''); }
+    };
+  }
+
+  // 异步探测统一收口：先 catch 住失败，再给一个超时兜底。
+  // 有些宿主（无蓝牙适配器 / 无界面）的 getAvailability() 会一直挂起不 settle，
+  // 没有超时的话那一行会永远停在「查询中…」。
+  function guardAsync(promise, onOk, onErr, ms) {
+    var done = false;
+    function ok(v) { done = true; onOk(v); }
+    function bad(e) { done = true; onErr(e); }
+    try {
+      promise.then(ok, bad);
+    } catch (e) { bad(e); }
+    setTimeout(function () {
+      // 超时后若结果姗姗来迟，仍然会覆盖成真实结果（信息更多）
+      if (!done) onErr(new Error('超时 ' + ms + 'ms 无响应（该宿主没有返回结果）'));
+    }, ms || 5000);
+  }
+
+  function fmtMB(bytes) {
+    var n = Number(bytes);
+    if (!isFinite(n)) return 'n/a';
+    return (n / 1048576).toFixed(2) + ' MB';
+  }
+
+  // ---------------- 各项探测 ----------------
+
+  function run() {
+    out.innerHTML = '';
+    // 日志重置：第 0 行时间，第 1 行留给汇总（由 refreshSummary 刷新）
+    logTakenOver = false;
+    logLines = ['探测时间：' + new Date().toLocaleString(), ''];
+    renderLog();
+
+    var isFile = location.protocol === 'file:';
+
+    // ========== 第 1 组：打开方式与安全上下文 ==========
+    head('一、打开方式与安全上下文');
+    row('location.protocol', location.protocol + (isFile ? '  （本地文件）' : ''), isFile ? 'warn' : 'ok');
+    row('location.href', String(location.href));
+    var secure = window.isSecureContext === true;
+    row('window.isSecureContext', String(secure), secure ? 'ok' : 'no');
+    row('location.host', location.host || '(无 host)', location.host ? 'ok' : 'warn');
+
+    // ========== 第 2 组：蓝牙 ==========
+    head('二、蓝牙（Web Bluetooth）');
+    var bt = null;
+    try { bt = navigator.bluetooth || null; } catch (e) { bt = null; }
+    row('navigator.bluetooth 存在', bt ? '存在' : '不存在 (undefined)', bt ? 'ok' : 'no');
+    var tAvail = typeOfProp(bt, 'getAvailability');
+    row('typeof navigator.bluetooth?.getAvailability', bt ? tAvail : '（navigator.bluetooth 不存在）不适用',
+      bt && tAvail === 'function' ? 'ok' : 'no');
+
+    // 异步项：先渲染上面的行，稍后回填
+    var rAvail = row('蓝牙适配器可用（getAvailability）', '查询中…', 'dim');
+    if (bt && tAvail === 'function') {
+      var pAvail;
+      try {
+        pAvail = bt.getAvailability();      // 有些实现会同步抛错，先兜住
+      } catch (e) {
+        pAvail = Promise.reject(e);
+      }
+      guardAsync(pAvail, function (ok) {
+        rAvail.set(ok ? 'true（适配器可用）' : 'false（适配器已关闭或不可用）', ok ? 'ok' : 'no');
+        refreshSummary();
+      }, function (e) {
+        rAvail.set('失败: ' + errMsg(e), 'no');
+        refreshSummary();
+      }, 5000);
+    } else {
+      rAvail.set(bt ? '不可用：没有 getAvailability' : '不可用：navigator.bluetooth 不存在', 'no');
+    }
+
+    // ========== 第 3 组：文件读写 ==========
+    head('三、文件读写（File System Access / 拖拽）');
+    var tDir = typeOfProp(window, 'showDirectoryPicker');
+    row('window.showDirectoryPicker', tDir, clsType(tDir));
+    var tOpen = typeOfProp(window, 'showOpenFilePicker');
+    row('window.showOpenFilePicker', tOpen, clsType(tOpen));
+    var tSave = typeOfProp(window, 'showSaveFilePicker');
+    row('window.showSaveFilePicker', tSave, clsType(tSave));
+    // ⚠ webkitdirectory 是原型上的访问器（getter），直接读取会抛
+    //   TypeError: Illegal invocation —— 必须用 in 判断存在性。
+    var hasWebkitDir = T(function () { return ('webkitdirectory' in HTMLInputElement.prototype); }, false);
+    row('HTMLInputElement.prototype.webkitdirectory', String(hasWebkitDir), hasWebkitDir ? 'ok' : 'no');
+    var tFileText = T(function () { return typeOfProp(File.prototype, 'text'); }, 'File 不可用');
+    row('File.prototype.text（可读拖入的文件）', tFileText, clsType(tFileText));
+    var tEntry = T(function () {
+      if (typeof DataTransferItem === 'undefined') return 'DataTransferItem 未定义';
+      return typeOfProp(DataTransferItem.prototype, 'webkitGetAsEntry');
+    }, 'DataTransferItem 不可用');
+    row('DataTransferItem.prototype.webkitGetAsEntry（拖拽读文件夹）', tEntry, clsType(tEntry));
+
+    // ========== 第 4 组：剪贴板 ==========
+    head('四、剪贴板（历史上出过事故，重点看这组）');
+    var cb = null;
+    try { cb = navigator.clipboard || null; } catch (e) { cb = null; }
+    row('navigator.clipboard 存在', cb ? '存在' : '不存在 (undefined)', cb ? 'ok' : 'no');
+    var tWrite = typeOfProp(cb, 'writeText');
+    row('navigator.clipboard?.writeText', cb ? tWrite : '不可用（无 navigator.clipboard）',
+      cb && tWrite === 'function' ? 'ok' : 'no');
+    var qcs = T(function () {
+      return typeof document.queryCommandSupported === 'function'
+        ? String(document.queryCommandSupported('copy'))
+        : '（无 queryCommandSupported）';
+    }, '调用异常');
+    row("document.queryCommandSupported('copy')", qcs,
+      qcs === 'true' ? 'ok' : (qcs === 'false' ? 'warn' : 'dim'));
+
+    // 组合结论：剪贴板到底能不能用
+    var cbUsable = !!cb && tWrite === 'function';
+    row('结论：剪贴板可用性',
+      cbUsable
+        ? '可用：优先走 navigator.clipboard.writeText' + (secure ? '' : '（注意当前非安全上下文，调用仍可能被拒）')
+        : '不可用：请用 textarea + execCommand 兜底',
+      cbUsable ? (secure ? 'ok' : 'warn') : 'no');
+
+    // ========== 第 5 组：存储 ==========
+    head('五、存储');
+
+    // 不只是判断存在，而是真的走一遍写入 → 读取 → 删除
+    function storageRoundtrip(name) {
+      try {
+        var s = window[name];
+        if (!s) return { ok: false, text: name + ' 不存在' };
+        var k = '__capchk__' + Date.now() + Math.random();
+        s.setItem(k, '1');
+        var got = s.getItem(k);
+        s.removeItem(k);
+        var left = s.getItem(k);
+        if (got === '1' && left === null) return { ok: true, text: '回环通过（写入 → 读取 → 删除均正常）' };
+        return { ok: false, text: '回环异常：读回=' + String(got) + '，删除后=' + String(left) };
+      } catch (e) {
+        return { ok: false, text: '不可用：' + errMsg(e) };
+      }
+    }
+
+    var ls = storageRoundtrip('localStorage');
+    row('localStorage 回环验证', ls.text, ls.ok ? 'ok' : 'no');
+    var ss = storageRoundtrip('sessionStorage');
+    row('sessionStorage 回环验证', ss.text, ss.ok ? 'ok' : 'no');
+
+    var hasIDB = false;
+    try { hasIDB = !!window.indexedDB; } catch (e) { hasIDB = false; }
+    row('indexedDB 存在', hasIDB ? '存在' : '不存在 (undefined)', hasIDB ? 'ok' : 'no');
+
+    var hasEst = false;
+    try { hasEst = !!(navigator.storage && typeof navigator.storage.estimate === 'function'); } catch (e) { hasEst = false; }
+    row('navigator.storage?.estimate 存在', hasEst ? '存在' : '不存在', hasEst ? 'ok' : 'no');
+
+    // 异步项：配额查询，失败单独 catch
+    var rEst = row('存储用量 / 配额（estimate）', hasEst ? '查询中…' : '不可用（无 estimate）', hasEst ? 'dim' : 'no');
+    if (hasEst) {
+      var pEst;
+      try {
+        pEst = navigator.storage.estimate();
+      } catch (e) {
+        pEst = Promise.reject(e);
+      }
+      guardAsync(pEst, function (est) {
+        var usage = est && est.usage, quota = est && est.quota;
+        var pct = (quota > 0) ? (usage / quota * 100).toFixed(2) + '%' : 'n/a';
+        rEst.set('已用 ' + fmtMB(usage) + ' / 配额 ' + fmtMB(quota) + '（' + pct + '）', 'ok');
+        refreshSummary();
+      }, function (e) {
+        rEst.set('失败: ' + errMsg(e), 'no');
+        refreshSummary();
+      }, 5000);
+    }
+
+    // ========== 第 6 组：其它 ==========
+    head('六、其它');
+    var tWS = T(function () { return typeof WebSocket; }, '取值异常');
+    row('WebSocket 构造器', tWS, tWS === 'function' ? 'ok' : 'no');
+    var online = T(function () { return navigator.onLine === true; }, false);
+    row('navigator.onLine', String(online), online ? 'ok' : 'warn');
+    var dpr = T(function () { return String(window.devicePixelRatio); }, 'n/a');
+    row('window.devicePixelRatio', dpr);
+    row('navigator.userAgent', String(navigator.userAgent));
+
+    // 汇总到日志（第 2 行）；异步结果回填时会再刷一次
+    refreshSummary();
+    say('异步项（蓝牙适配器、存储配额）如有结果会稍后自动补上。');
+  }
+
+  // ---------------- 复制报告 ----------------
+
+  function pad(s, n) {
+    s = String(s);
+    while (s.length < n) s += ' ';
+    return s;
+  }
+
+  // 直接从已渲染的 DOM 生成报告，保证与页面显示完全一致
+  function buildReport() {
+    var lines = [];
+    lines.push('浏览器能力探测报告');
+    lines.push('时间：' + new Date().toLocaleString());
+    lines.push('地址：' + location.href);
+    lines.push(new Array(56).join('='));
+    var nodes = out.children;
+    var pending = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.tagName === 'H2') {
+        lines.push('');
+        lines.push('【' + n.textContent + '】');
+      } else if (n.className && n.className.indexOf('row') >= 0) {
+        var k = n.querySelector('.k'), v = n.querySelector('.v');
+        if (v.textContent.indexOf('查询中') >= 0) pending++;
+        var mark = (v.className.indexOf('no') >= 0) ? ' [不可用]'
+                 : (v.className.indexOf('warn') >= 0) ? ' [注意]' : '';
+        lines.push(pad(k.textContent, 34) + ' : ' + v.textContent + mark);
+      }
+    }
+    // 异步项还没回来就复制的话，明确说明这是不完整快照，免得被误读
+    if (pending > 0) {
+      lines.push('');
+      lines.push('（注：有 ' + pending + ' 项仍显示「查询中…」，等一两秒重新探测后再复制可拿到完整结果）');
+    }
+    return lines.join('\n');
+  }
+
+  // 兜底方案：textarea + execCommand（file:// 下常常只有这条路能走通）
+  function fallbackCopy(text) {
+    var ta = null;
+    try {
+      ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      var ok = false;
+      try { ok = document.execCommand && document.execCommand('copy'); } catch (e) { ok = false; }
+      return ok ? 'execCommand' : 'manual';
+    } catch (e) {
+      return 'manual';
+    } finally {
+      if (ta && ta.parentNode) ta.parentNode.removeChild(ta);
+    }
+  }
+
+  function copyReport() {
+    var text = buildReport();
+    var done = function (how) {
+      if (how === 'clipboard') say('✅ 报告已复制到剪贴板（navigator.clipboard.writeText）。');
+      else if (how === 'execCommand') say('✅ 报告已复制到剪贴板（textarea + execCommand 兜底）。');
+      else manual(text);
+    };
+
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text)
+          .then(function () { done('clipboard'); })
+          .catch(function (e) {
+            say('⚠ clipboard.writeText 被拒（' + errMsg(e) + '），改用 textarea + execCommand…');
+            done(fallbackCopy(text));
+          });
+      } else {
+        say('ℹ 当前环境没有 navigator.clipboard，改用 textarea + execCommand…');
+        done(fallbackCopy(text));
+      }
+    } catch (e) {
+      say('⚠ 复制过程异常（' + errMsg(e) + '），改为手动复制。');
+      manual(text);
+    }
+  }
+
+  // 两种自动方式都失败：把报告直接显示出来供手动选择
+  function manual(text) {
+    logTakenOver = true;   // 日志被报告整块替换，之后不再自动刷新
+    log.textContent = '⚠ 自动复制失败（clipboard 与 execCommand 都不可用）。\n'
+      + '请手动选中下面的文本，按 Ctrl+C 复制：\n\n' + text;
+    // 顺手把内容选中，方便用户直接 Ctrl+C
+    try {
+      var r = document.createRange();
+      r.selectNodeContents(log);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch (e) { /* 选中失败也无所谓，用户仍可手动拖选 */ }
+  }
+
+  // ---------------- 事件绑定 ----------------
+
+  btnRe.onclick = function () {
+    btnRe.disabled = true;
+    try { run(); } catch (e) { say('⚠ 探测过程异常：' + errMsg(e)); }
+    btnRe.disabled = false;
+  };
+
+  btnCopy.onclick = function () {
+    try { copyReport(); } catch (e) { say('⚠ 复制失败：' + errMsg(e)); }
+  };
+
+  // 首次进入自动跑一遍；即使这里抛错也不影响页面其它部分
+  try { run(); } catch (e) { say('⚠ 探测过程异常：' + errMsg(e)); }
+})();
+</script>
+</body>
+</html>

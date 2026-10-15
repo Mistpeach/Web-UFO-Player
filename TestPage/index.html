@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>TestPage 索引</title>
+<style>
+
+  *, *::before, *::after { box-sizing: border-box; }
+  body{
+    margin:0 auto; max-width:900px; padding:28px 20px 60px;
+    background:#0f1729; color:#e0e0e0; line-height:1.7;
+    font-family:system-ui,"Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1{ font-size:1.5rem; color:#a78bfa; margin:0; }
+  .top{
+    display:flex; align-items:baseline; justify-content:space-between;
+    gap:8px 16px; flex-wrap:wrap; margin:0 0 8px;
+  }
+  .back{
+    color:#8899aa; font-size:13px; text-decoration:none; white-space:nowrap;
+    border-bottom:1px dotted #4a5670;
+    transition:color .18s ease,border-color .18s ease;
+  }
+  .back:hover{ color:#a78bfa; border-bottom-color:#a78bfa; }
+  .back:focus-visible{ outline:2px solid #a78bfa; outline-offset:2px; }
+  .badge{
+    display:inline-block; vertical-align:middle; margin-left:6px;
+    padding:2px 9px; border-radius:10px; font-size:12px; font-weight:400;
+    font-family:Consolas,"Courier New",monospace;
+    background:#1a1a2e; border:1px solid #0f3460; color:#8899aa;
+  }
+  .sub{ margin:0 0 22px; color:#8899aa; font-size:13px; }
+  .sub code{
+    padding:1px 6px; border-radius:3px; font-size:12px; color:#a78bfa;
+    background:#1a1a2e; font-family:Consolas,"Courier New",monospace;
+  }
+  h2{ font-size:1rem; font-weight:600; color:#8899aa; margin:0 0 12px; }
+  .cat{ margin-bottom:26px; }
+  .cat[hidden]{ display:none; }
+  .catn{
+    display:inline-block; vertical-align:middle; margin-left:6px;
+    padding:1px 8px; border-radius:9px; font-size:11px; font-weight:400;
+    font-family:Consolas,"Courier New",monospace;
+    background:#1a1a2e; border:1px solid #0f3460; color:#8899aa;
+  }
+
+  /* ---- 搜索 ---- */
+  .search{ display:flex; gap:10px; align-items:center; margin:0 0 20px; flex-wrap:wrap; }
+  .search input{
+    flex:1; min-width:200px; padding:9px 12px; border-radius:6px; font-size:14px;
+    background:#16213e; border:1px solid #0f3460; color:#e0e0e0;
+    font-family:Consolas,"Courier New",monospace;
+  }
+  .search input::placeholder{ color:#5d6884; }
+  .search input:focus{ outline:2px solid #a78bfa; outline-offset:1px; }
+  #hitCount{ font-size:12px; color:#8899aa; font-family:Consolas,"Courier New",monospace; white-space:nowrap; }
+  .noresult{ padding:16px; border-radius:8px; color:#8899aa; font-size:13px;
+             background:#16213e; border:1px dashed #0f3460; }
+  .noresult[hidden]{ display:none; }
+
+  /* ---- 顶部按钮：每个按钮 = 一个文件名 ---- */
+  .btns{ display:flex; flex-wrap:wrap; gap:10px; margin:0 0 28px; }
+  .btn{
+    display:inline-block; padding:9px 14px; border-radius:6px;
+    background:#16213e; border:1px solid #0f3460; color:#e0e0e0;
+    font-family:Consolas,"Courier New",monospace; font-size:13.5px;
+    text-decoration:none; white-space:nowrap;
+    transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease;
+  }
+  .btn:hover{ background:#0f3460; border-color:#a855f7; color:#fff; transform:translateY(-1px); }
+  .btn:active{ transform:none; }
+  .btn:focus-visible{ outline:2px solid #a78bfa; outline-offset:2px; }
+
+  /* ---- 下方列表 ---- */
+  .list{ display:flex; flex-direction:column; gap:8px; }
+  .item{
+    display:flex; align-items:baseline; gap:14px; padding:12px 14px;
+    background:#16213e; border:1px solid #0f3460; border-radius:8px;
+    color:inherit; text-decoration:none;
+    transition:background .18s ease,border-color .18s ease;
+  }
+  .item:hover{ background:#1b2a4d; border-color:#a855f7; }
+  .item:focus-visible{ outline:2px solid #a78bfa; outline-offset:2px; }
+  .fn{ flex:0 0 auto; color:#a78bfa; font-size:13.5px; font-family:Consolas,"Courier New",monospace; }
+  .ti{ flex:1 1 auto; min-width:0; color:#c8c8d4; font-size:14px;
+       overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ti.none{ color:#5d6884; font-style:italic; }
+  .meta{ flex:0 0 auto; color:#8899aa; font-size:12px; font-family:Consolas,"Courier New",monospace; }
+  .empty{
+    margin:0; padding:16px; border-radius:8px; color:#8899aa; font-size:13px;
+    background:#16213e; border:1px dashed #0f3460;
+  }
+  .foot{
+    margin-top:30px; padding-top:14px; font-size:12px; color:#66708a;
+    border-top:1px solid #0f3460;
+  }
+
+  @media (max-width:620px){
+    body{ padding:20px 14px 44px; }
+    h1{ font-size:1.28rem; }
+    .btn{ font-size:13px; padding:8px 12px; }
+    .item{ flex-wrap:wrap; gap:3px 12px; }
+    .ti{ flex-basis:100%; white-space:normal; }
+    .meta{ flex-basis:100%; }
+  }
+
+</style>
+</head>
+<body>
+
+<div class="top">
+<h1>TestPage 索引<span class="badge">14</span></h1>
+<a class="back" href="../index.html">← 返回 UFO Player 首页</a>
+</div>
+<p class="sub">本页由 <code>build-index.py</code> 扫描本目录自动生成 · 新增 html 文件后重新运行一次即可刷新</p>
+
+<div class="search">
+  <input type="search" id="q" placeholder="搜索文件名或标题…（例如 ble、远程、时序）" autocomplete="off">
+  <span id="hitCount"></span>
+</div>
+
+<h2>快速跳转</h2>
+<div class="btns">
+  <a class="btn" href="ai-ctrl-lab.html">ai-ctrl-lab.html</a>
+  <a class="btn" href="ble-proto.html">ble-proto.html</a>
+  <a class="btn" href="bt-check.html">bt-check.html</a>
+  <a class="btn" href="capability-check.html">capability-check.html</a>
+  <a class="btn" href="csv-preview.html">csv-preview.html</a>
+  <a class="btn" href="net-diagnose.html">net-diagnose.html</a>
+  <a class="btn" href="ref-check.html">ref-check.html</a>
+  <a class="btn" href="remote-selftest.html">remote-selftest.html</a>
+  <a class="btn" href="room-lifecycle.html">room-lifecycle.html</a>
+  <a class="btn" href="safety-timing.html">safety-timing.html</a>
+  <a class="btn" href="storage-check.html">storage-check.html</a>
+  <a class="btn" href="sync-trace.html">sync-trace.html</a>
+  <a class="btn" href="tick-jitter.html">tick-jitter.html</a>
+  <a class="btn" href="ws-e2e.html">ws-e2e.html</a>
+</div>
+
+<h2>文件列表</h2>
+<div id="cats">
+<div class="cat">
+  <h2>🖥 环境与能力<span class="catn">3</span></h2>
+  <div class="list">
+  <a class="item" href="bt-check.html">
+    <span class="fn">bt-check.html</span>
+    <span class="ti">Web Bluetooth 环境自检</span>
+    <span class="meta">5.2 KB · 2026-09-16 23:20</span>
+  </a>
+  <a class="item" href="capability-check.html">
+    <span class="fn">capability-check.html</span>
+    <span class="ti">浏览器能力探测</span>
+    <span class="meta">19.4 KB · 2026-10-16 01:18</span>
+  </a>
+  <a class="item" href="storage-check.html">
+    <span class="fn">storage-check.html</span>
+    <span class="ti">本地存储体检 · 备份</span>
+    <span class="meta">37.0 KB · 2026-10-16 01:21</span>
+  </a>
+  </div>
+</div>
+<div class="cat">
+  <h2>📡 协议与实现<span class="catn">2</span></h2>
+  <div class="list">
+  <a class="item" href="ai-ctrl-lab.html">
+    <span class="fn">ai-ctrl-lab.html</span>
+    <span class="ti">AI 控制协议试验台</span>
+    <span class="meta">28.9 KB · 2026-10-16 01:17</span>
+  </a>
+  <a class="item" href="ble-proto.html">
+    <span class="fn">ble-proto.html</span>
+    <span class="ti">BLE 协议试验台</span>
+    <span class="meta">20.1 KB · 2026-10-16 01:18</span>
+  </a>
+  </div>
+</div>
+<div class="cat">
+  <h2>🎛 数据与波形<span class="catn">1</span></h2>
+  <div class="list">
+  <a class="item" href="csv-preview.html">
+    <span class="fn">csv-preview.html</span>
+    <span class="ti">波形导入预览</span>
+    <span class="meta">17.1 KB · 2026-10-16 01:18</span>
+  </a>
+  </div>
+</div>
+<div class="cat">
+  <h2>⏱ 时序与安全<span class="catn">2</span></h2>
+  <div class="list">
+  <a class="item" href="safety-timing.html">
+    <span class="fn">safety-timing.html</span>
+    <span class="ti">急停时间窗验证</span>
+    <span class="meta">15.5 KB · 2026-10-16 01:19</span>
+  </a>
+  <a class="item" href="tick-jitter.html">
+    <span class="fn">tick-jitter.html</span>
+    <span class="ti">发送时序体检 - UFO Player</span>
+    <span class="meta">22.9 KB · 2026-10-16 01:17</span>
+  </a>
+  </div>
+</div>
+<div class="cat">
+  <h2>🌐 远程与网络<span class="catn">5</span></h2>
+  <div class="list">
+  <a class="item" href="net-diagnose.html">
+    <span class="fn">net-diagnose.html</span>
+    <span class="ti">远程中继 网络诊断</span>
+    <span class="meta">12.4 KB · 2026-09-17 21:51</span>
+  </a>
+  <a class="item" href="remote-selftest.html">
+    <span class="fn">remote-selftest.html</span>
+    <span class="ti">远程控制 · 集成自测</span>
+    <span class="meta">17.6 KB · 2026-09-17 22:12</span>
+  </a>
+  <a class="item" href="room-lifecycle.html">
+    <span class="fn">room-lifecycle.html</span>
+    <span class="ti">房间生命周期验证</span>
+    <span class="meta">22.4 KB · 2026-10-16 01:20</span>
+  </a>
+  <a class="item" href="sync-trace.html">
+    <span class="fn">sync-trace.html</span>
+    <span class="ti">同步状态诊断 - UFO Player</span>
+    <span class="meta">12.9 KB · 2026-09-17 22:12</span>
+  </a>
+  <a class="item" href="ws-e2e.html">
+    <span class="fn">ws-e2e.html</span>
+    <span class="ti">WebSocket 中继端到端验证</span>
+    <span class="meta">6.6 KB · 2026-09-17 21:54</span>
+  </a>
+  </div>
+</div>
+<div class="cat">
+  <h2>🧰 工程与巡检<span class="catn">1</span></h2>
+  <div class="list">
+  <a class="item" href="ref-check.html">
+    <span class="fn">ref-check.html</span>
+    <span class="ti">资源引用完整性检查</span>
+    <span class="meta">47.0 KB · 2026-10-16 01:22</span>
+  </a>
+  </div>
+</div>
+</div>
+<p class="noresult" id="noresult" hidden>没有匹配的页面。换个关键词，或清空搜索框。</p>
+
+<div class="foot">
+  生成于 2026-10-16 01:23
+</div>
+
+<script>
+(function () {
+  var q = document.getElementById('q');
+  var items = Array.prototype.slice.call(document.querySelectorAll('.item'));
+  var btns  = Array.prototype.slice.call(document.querySelectorAll('.btn'));
+  var cats  = Array.prototype.slice.call(document.querySelectorAll('.cat'));
+  var hits  = document.getElementById('hitCount');
+  var none  = document.getElementById('noresult');
+
+  function norm(s) { return String(s || '').toLowerCase(); }
+  function targetOf(el) {
+    try { return decodeURIComponent(el.getAttribute('href') || ''); }
+    catch (e) { return el.getAttribute('href') || ''; }
+  }
+
+  function apply() {
+    var key = norm(q.value).trim();
+    var visible = {};
+
+    cats.forEach(function (cat) {
+      // 分区标题也算匹配条件：搜「远程」应该把整个「远程与网络」都列出来，
+      // 而不是只命中标题里恰好带「远程」的那两条。
+      var catHit = !!key && norm(cat.querySelector('h2').textContent).indexOf(key) >= 0;
+      var any = false;
+      Array.prototype.forEach.call(cat.querySelectorAll('.item'), function (el) {
+        var hit = !key || catHit || norm(el.textContent).indexOf(key) >= 0;
+        el.style.display = hit ? '' : 'none';
+        if (hit) { any = true; visible[targetOf(el)] = 1; }
+      });
+      cat.hidden = !any;
+    });
+
+    // 顶部按钮跟着列表走，两边永远一致
+    btns.forEach(function (el) {
+      el.style.display = visible[targetOf(el)] ? '' : 'none';
+    });
+
+    var shown = Object.keys(visible).length;
+    hits.textContent = key ? ('匹配 ' + shown + ' / ' + items.length) : ('共 ' + items.length + ' 个页面');
+    none.hidden = !(key && shown === 0);
+  }
+
+  q.addEventListener('input', apply);
+  q.addEventListener('keydown', function (e) { if (e.key === 'Escape') { q.value = ''; apply(); } });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
+  });
+  apply();
+})();
+</script>
+
+</body>
+</html>

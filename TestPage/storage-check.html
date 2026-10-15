@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>本地存储体检 · 备份</title>
+<!--
+  storage-check.html —— localStorage（ufo.* 命名空间）体检 + 备份 / 恢复 / 清空
+  · 纯静态、零依赖、不联网，双击即可打开（file:// 也能用）
+  · 本页只碰 ufo.* 键，自己的探测键 ufo.check.__probe 扫描时被排除、用完即删
+  · 字节数按 UTF-16 粗估（字符数 × 2），与 WaveControler/js/store.js 的 bytesOf() 同一算法
+-->
+<style>
+  :root{ --bg:#0f1729; --panel:#16213e; --line:#0f3460; --text:#e0e0e0; --dim:#8899aa;
+         --accent:#a78bfa; --ok:#3ddc97; --no:#ff6b6b; --warn:#fbbf24; }
+  body{ background:var(--bg); color:var(--text); font-family:system-ui,"Microsoft YaHei",sans-serif;
+        max-width:860px; margin:0 auto; padding:28px 20px 60px; line-height:1.7; }
+  h1{ font-size:1.5rem; color:var(--accent); margin:0 0 6px; }
+  .sub{ color:var(--dim); font-size:13px; margin:0 0 18px; }
+  h2{ font-size:14px; color:var(--dim); font-weight:600; margin:22px 0 8px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px; }
+  .row{ display:flex; gap:12px; align-items:baseline; padding:8px 12px; border-radius:6px;
+        background:var(--panel); border:1px solid var(--line); margin-bottom:6px; }
+  .k{ flex:0 0 220px; color:var(--dim); font-size:13px; }
+  .v{ flex:1; min-width:0; font-family:Consolas,"Courier New",monospace; font-size:13.5px; word-break:break-all; }
+  .ok{ color:var(--ok); } .no{ color:var(--no); } .warn{ color:var(--warn); } .dim{ color:var(--dim); }
+  .btnbar{ display:flex; gap:10px; flex-wrap:wrap; margin:4px 0 16px; }
+  button{ padding:9px 18px; font-size:14px; border-radius:6px; cursor:pointer; font-family:inherit;
+          border:1px solid var(--line); background:var(--panel); color:var(--text); }
+  button:hover{ background:var(--line); }
+  button.primary{ border:none; background:linear-gradient(135deg,#533483,#a855f7); color:#fff; }
+  button.primary:hover{ opacity:.88; }
+  button.danger{ background:#3a1a1a; border-color:#7a2a2a; color:#ff9d9d; }
+  button:disabled{ opacity:.5; cursor:default; }
+  #log{ margin-top:12px; padding:12px; background:#0d1424; border:1px solid var(--line); border-radius:6px;
+        font-family:Consolas,"Courier New",monospace; font-size:12.5px; white-space:pre-wrap;
+        min-height:70px; color:#c0c0c0; }
+  .note{ margin-top:22px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+         border-radius:4px; font-size:13px; color:#aaa; }
+  .note b{ color:var(--text); }
+  code{ background:#1a1a2e; padding:1px 5px; border-radius:3px; color:var(--accent); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ border:1px solid var(--line); padding:6px 9px; text-align:left; vertical-align:top; }
+  th{ background:#1a1a2e; color:var(--dim); font-weight:600; }
+  .bar{ height:6px; border-radius:3px; background:linear-gradient(90deg,#533483,#a855f7); }
+  @media (max-width:620px){ .k{ flex-basis:100%; } .row{ flex-wrap:wrap; gap:2px; } }
+</style>
+</head>
+<body>
+
+<h1>💾 本地存储体检 · 备份</h1>
+<p class="sub">
+  检查浏览器 <code>localStorage</code> 里 <code>ufo.*</code> 命名空间的键是否完整（波形库 / AI 配置 / AI 角色卡），
+  并把它们导出成一份 JSON 备份，必要时再恢复回来。纯静态、零依赖、不联网。
+</p>
+
+<div class="btnbar">
+  <button id="btnScan" class="primary">🔄 重新扫描</button>
+  <button id="btnExport">📤 导出全部为 JSON</button>
+  <button id="btnImport">📥 从 JSON 恢复</button>
+  <button id="btnClear" class="danger">🗑 清空全部 ufo.* 数据</button>
+  <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+</div>
+
+<h2>一、总览</h2>
+<div id="overview"></div>
+<div class="card" id="estimateBar" style="display:none">
+  <div class="dim" id="estimateText" style="font-size:12.5px; margin-bottom:6px"></div>
+  <div class="bar" id="estimateFill" style="width:0%"></div>
+</div>
+
+<h2>二、分组明细</h2>
+<div id="groups"></div>
+
+<div id="preview"></div>
+
+<h2>三、操作日志</h2>
+<div id="log">就绪，等待操作…</div>
+
+<div class="note">
+  <b>怎么看这份体检：</b><br>
+  · <b>数据只存在浏览器本地。</b>换浏览器、清缓存 / 清站点数据、换域名或端口、无痕模式，都会导致数据丢失 ——
+    所以请定期点「📤 导出全部为 JSON」做备份。导出的文件里有你的 <b>API 密钥</b>，请自己保管好、不要乱传。<br>
+  · <b>状态列</b>：能 <code>JSON.parse</code> 成功 = <span class="ok">正常</span>，解析失败 = <span class="no">损坏</span>，
+    值为空字符串 = <span class="warn">空</span>。索引键会额外显示「索引：N 条」。<br>
+  · <code>file://</code> 打开时 <code>localStorage</code> 通常可用，但<b>不同 <code>file://</code> 路径可能被当成不同来源</b>（数据不共享），
+    部分浏览器也会限制本地文件写存储。想让「控制器 / 编辑器 / AI 控制器」共用同一份数据，用同一个地址打开它们（例如同一个
+    <code>http://127.0.0.1</code> 端口）。<br>
+  · AI 控制器的 <code>settings.js</code> 里有一条「<b>配置损坏就静默重置为默认值</b>」的分支（<code>load()</code> 的 catch）。
+    所以如果这里看到 <code>ufo.ai.settings.v1</code> 是「损坏」，说明这份配置<b>已经丢过一次了</b>（下次打开 AI 控制器就会被重置为默认值），
+    请尽快用备份恢复。<br>
+  · 字节数按 <b>UTF-16 粗估</b>（字符数 × 2，与 <code>WaveControler/js/store.js</code> 的 <code>bytesOf()</code> 同一算法），
+    不是磁盘上的精确占用；<code>navigator.storage.estimate()</code> 那一行才是整个来源的真实用量。<br>
+  · 导出时若某个键已经损坏，它的原始字符串会被原样保存（键名记在 JSON 的 <code>rawKeys</code> 字段里），恢复时原样写回，不做「修复」。<br>
+  · 本页只读写 <code>ufo.*</code> 键，自己的探测键 <code>ufo.check.__probe</code> 用完即删、且不计入统计。
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ============================================================
+  // 常量：本页关注的全部命名空间（分组顺序 = 匹配优先级）
+  // ============================================================
+  var OWN_PROBE = 'ufo.check.__probe';        // 本页自己的探测键：扫描时排除、用完即删
+  var K_WAVE_IX = 'ufo.wave.index.v1';        // 波形索引    { v:1, items:[元数据] }
+  var P_WAVE_ITEM = 'ufo.wave.item.v1.';      // 单个波形
+  var K_WAVE_SET = 'ufo.wave.settings.v1';    // 波形界面设置
+  var K_AI_SET = 'ufo.ai.settings.v1';        // AI 控制器配置
+  var K_AI_ROLE_IX = 'ufo.ai.role.index.v1';  // AI 角色卡索引
+  var P_AI_ROLE_ITEM = 'ufo.ai.role.item.v1.';// 单张角色卡
+  var K_AI_PROBE = 'ufo.ai.__probe';          // settings.js 的探测键（正常不应残留）
+
+  var GROUPS = [
+    { id: 'wave', title: '波形库 ufo.wave.*',
+      desc: '波形控制器的波形数据：ufo.wave.index.v1 是索引、ufo.wave.item.v1.<id> 是单个波形、ufo.wave.settings.v1 是界面设置。' +
+            'AI 控制器也读这份数据（只读，不会改动它）。',
+      match: function (k) { return k.indexOf('ufo.wave.') === 0; } },
+
+    { id: 'ai-settings', title: 'AI 配置 ' + K_AI_SET,
+      desc: 'AI 控制器的配置：接口地址、密钥、安全上限、波形白名单。损坏会被 settings.js 静默重置为默认值。',
+      match: function (k) { return k === K_AI_SET; } },
+
+    { id: 'ai-role', title: 'AI 角色卡 ufo.ai.role.*',
+      desc: 'ufo.ai.role.index.v1 是索引，ufo.ai.role.item.v1.<id> 是单张角色卡的完整内容。',
+      match: function (k) { return k === K_AI_ROLE_IX || k.indexOf(P_AI_ROLE_ITEM) === 0; } },
+
+    { id: 'ai-probe', title: '探测残留 ' + K_AI_PROBE,
+      desc: 'settings.js 初始化时写入又立刻删除的探测键，正常情况下不应该残留。',
+      match: function (k) { return k === K_AI_PROBE; } },
+
+    { id: 'other', title: '其它 ufo.*',
+      desc: '上面 4 组没覆盖到的、其它以 ufo. 开头的键（例如旧版本遗留的键、其它模块的 __probe）。',
+      match: function (k) { return k.indexOf('ufo.') === 0; } }
+  ];
+
+  // ============================================================
+  // DOM 句柄
+  // ============================================================
+  var $overview = document.getElementById('overview');
+  var $groups = document.getElementById('groups');
+  var $preview = document.getElementById('preview');
+  var $log = document.getElementById('log');
+  var $file = document.getElementById('fileInput');
+  var $estimateBar = document.getElementById('estimateBar');
+  var $estimateText = document.getElementById('estimateText');
+  var $estimateFill = document.getElementById('estimateFill');
+
+  var estimateCell = null;   // 总览里「storage.estimate」那一行的 .v 元素（异步回填）
+  var pendingPlan = null;    // 恢复：等待二次确认的写入计划
+
+  // ============================================================
+  // 小工具
+  // ============================================================
+  function msg(e) { return (e && e.message) || String(e); }
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  function nowHMS() {
+    var d = new Date();
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  }
+  function stamp() {
+    var d = new Date();
+    return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '-' +
+           pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+  }
+
+  // 字节数：UTF-16 粗估，与 WaveControler/js/store.js 的 bytesOf() 一致
+  function bytesOf(s) { return s ? s.length * 2 : 0; }
+
+  function human(bytes) {
+    if (!bytes) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+    return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  }
+
+  // 键名列表：太多就省略，避免确认框 / 日志被刷屏
+  function listNames(keys, max) {
+    max = max || 8;
+    if (keys.length <= max) return keys.join(', ');
+    return keys.slice(0, max).join(', ') + ' … 等共 ' + keys.length + ' 个';
+  }
+
+  function say(text) {
+    $log.textContent += '\n[' + nowHMS() + '] ' + text;
+    // 日志太长就丢掉前半段（恢复几百个键时也不会把页面拖慢）
+    if ($log.textContent.length > 40000) {
+      $log.textContent = '…（较早的日志已截断）\n' + $log.textContent.slice(-30000);
+    }
+  }
+
+  function appendSpan(parent, text, cls) {
+    var s = document.createElement('span');
+    if (cls) s.className = cls;
+    s.textContent = text;
+    parent.appendChild(s);
+    return s;
+  }
+
+  function rowInto(host, k, v, cls) {
+    var d = document.createElement('div');
+    d.className = 'row';
+    var ks = document.createElement('span'); ks.className = 'k'; ks.textContent = k;
+    var vs = document.createElement('span'); vs.className = 'v' + (cls ? ' ' + cls : ''); vs.textContent = v;
+    d.appendChild(ks); d.appendChild(vs);
+    host.appendChild(d);
+    return vs;
+  }
+
+  // ============================================================
+  // 扫描
+  // ============================================================
+  function groupOf(key) {
+    for (var i = 0; i < GROUPS.length; i++) if (GROUPS[i].match(key)) return GROUPS[i].id;
+    return 'other';
+  }
+
+  // 只解析一次，状态 / 值 / 索引条数都记在这个对象里
+  function analyze(key, raw) {
+    var e = { key: key, raw: raw, bytes: bytesOf(raw), group: groupOf(key),
+              st: 'ok', label: '正常', cls: 'ok', why: '', indexCount: -1, isProbe: /\.__probe$/.test(key) };
+
+    if (raw === null) {                       // 枚举之后被别的标签页删掉了
+      e.st = 'gone'; e.label = '缺失'; e.cls = 'no'; e.why = '枚举后已不存在';
+      return e;
+    }
+    if (raw === '') {
+      e.st = 'empty'; e.label = '空'; e.cls = 'warn'; e.why = '值为空字符串';
+      return e;
+    }
+    try {
+      var v = JSON.parse(raw);
+      e.value = v;
+      if (v && typeof v === 'object' && !Array.isArray(v) && Object.prototype.toString.call(v.items) === '[object Array]') {
+        e.indexCount = v.items.length;         // 索引键：items 条数
+      }
+    } catch (err) {
+      e.st = 'bad'; e.label = '损坏'; e.cls = 'no'; e.why = 'JSON.parse 失败：' + msg(err);
+    }
+    return e;
+  }
+
+  function scan() {
+    var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+    var out = { available: false, reason: '', enumError: '', entries: [],
+                totalBytes: 0, damaged: 0, empty: 0, missing: 0, ms: 0 };
+    var ls = null;
+
+    // ---- 可用性：写 → 读 → 删 回环验证（无痕模式下可能直接抛异常）----
+    try {
+      ls = window.localStorage;
+      if (!ls) throw new Error('浏览器未提供 localStorage');
+      ls.setItem(OWN_PROBE, '1');
+      if (ls.getItem(OWN_PROBE) !== '1') throw new Error('写入后读取不一致');
+      ls.removeItem(OWN_PROBE);
+      out.available = true;
+    } catch (e) {
+      out.available = false;
+      out.reason = msg(e);
+      try { if (ls) ls.removeItem(OWN_PROBE); } catch (e2) { /* 尽力清理探测键 */ }
+    }
+
+    // ---- 枚举：只看 ufo.* 命名空间；一批几百个键也只是一次线性遍历 ----
+    try {
+      if (!ls) throw new Error('无可用的 localStorage');
+      var n = ls.length, i, k, raw;
+      for (i = 0; i < n; i++) {
+        k = ls.key(i);
+        if (k === null || k === undefined) continue;
+        if (k === OWN_PROBE) continue;             // 排除本页自己的探测键
+        if (k.indexOf('ufo.') !== 0) continue;     // 只关注 ufo.*
+        try { raw = ls.getItem(k); } catch (e3) { raw = null; }
+        out.entries.push(analyze(k, raw));
+      }
+    } catch (e) {
+      out.enumError = msg(e);
+    }
+
+    // ---- 排序（按分组顺序，组内按键名）+ 统计 ----
+    var order = {};
+    GROUPS.forEach(function (g, i) { order[g.id] = i; });
+    out.entries.sort(function (a, b) {
+      var d = order[a.group] - order[b.group];
+      if (d) return d;
+      return a.key < b.key ? -1 : (a.key > b.key ? 1 : 0);
+    });
+    out.entries.forEach(function (e) {
+      out.totalBytes += e.bytes;
+      if (e.st === 'bad') out.damaged++;
+      else if (e.st === 'empty') out.empty++;
+      else if (e.st === 'gone') out.missing++;
+    });
+
+    out.ms = Math.max(0, ((window.performance && performance.now) ? performance.now() : Date.now()) - t0);
+    return out;
+  }
+
+  // ============================================================
+  // 渲染：总览
+  // ============================================================
+  function renderOverview(res) {
+    $overview.innerHTML = '';
+    estimateCell = null;
+    var frag = document.createDocumentFragment();
+
+    rowInto(frag, 'localStorage 可用',
+      res.available ? '可用（写 → 读 → 删 回环验证通过）' : ('不可用：' + res.reason),
+      res.available ? 'ok' : 'no');
+
+    rowInto(frag, '受关注键总数（ufo.*）',
+      res.entries.length + ' 个' + (res.enumError ? '（枚举出错：' + res.enumError + '）' : ''),
+      res.entries.length ? '' : 'dim');
+
+    rowInto(frag, '总占用（UTF-16 粗估）',
+      human(res.totalBytes) + '（' + res.totalBytes + ' 字节）');
+
+    estimateCell = rowInto(frag, 'navigator.storage.estimate()', '查询中…', 'dim');
+
+    var hasProbe = res.entries.some(function (e) { return e.key === K_AI_PROBE; });
+    rowInto(frag, '残留 ' + K_AI_PROBE,
+      hasProbe
+        ? '有残留 —— 正常应被自动删除，通常是上次初始化被中断；不影响使用，可随「清空」一并清掉'
+        : '无残留',
+      hasProbe ? 'warn' : 'ok');
+
+    var extra = [];
+    if (res.damaged) extra.push(res.damaged + ' 个损坏');
+    if (res.empty) extra.push(res.empty + ' 个空值');
+    if (res.missing) extra.push(res.missing + ' 个已消失');
+    rowInto(frag, '损坏 / 空 / 消失',
+      extra.length ? extra.join('，') + '（见下方分组明细）' : '没有',
+      res.damaged ? 'no' : (extra.length ? 'warn' : 'ok'));
+
+    $overview.appendChild(frag);
+  }
+
+  // ============================================================
+  // 渲染：分组明细
+  // ============================================================
+  function makeSummary(items) {
+    var bytes = 0, bad = 0, empty = 0;
+    items.forEach(function (e) {
+      bytes += e.bytes;
+      if (e.st === 'bad') bad++;
+      if (e.st === 'empty') empty++;
+    });
+    var d = document.createElement('div');
+    d.className = 'dim';
+    d.style.cssText = 'font-size:12.5px; margin:6px 0 18px';
+    d.textContent = '小结：' + items.length + ' 个键，共 ' + human(bytes) + '（' + bytes + ' 字节）';
+    if (bad) appendSpan(d, ' · ' + bad + ' 个损坏', 'no');
+    if (empty) appendSpan(d, ' · ' + empty + ' 个空值', 'warn');
+    return d;
+  }
+
+  function statusCell(e) {
+    var td = document.createElement('td');
+    td.className = e.cls;
+    td.textContent = e.label;
+    if (e.indexCount >= 0) td.textContent += ' · 索引：' + e.indexCount + ' 条';
+    if (e.st === 'bad' || e.st === 'empty' || e.st === 'gone') {
+      appendSpan(td, '（' + e.why + '）', 'dim');
+    }
+    if (e.isProbe) appendSpan(td, ' · 探测残留', 'warn');
+    return td;
+  }
+
+  function renderGroups(res) {
+    var frag = document.createDocumentFragment();
+
+    GROUPS.forEach(function (g) {
+      var items = res.entries.filter(function (e) { return e.group === g.id; });
+
+      var h = document.createElement('h2');
+      h.textContent = g.title + '（' + items.length + ' 个键）';
+      frag.appendChild(h);
+
+      var desc = document.createElement('div');
+      desc.className = 'dim';
+      desc.style.cssText = 'font-size:12.5px; margin:-4px 0 8px';
+      desc.textContent = g.desc;
+      frag.appendChild(desc);
+
+      if (!items.length) {
+        var none = document.createElement('div');
+        none.className = 'card dim';
+        none.textContent = '（无）';
+        frag.appendChild(none);
+      } else {
+        var table = document.createElement('table');
+        var thead = document.createElement('thead');
+        var htr = document.createElement('tr');
+        [['键名', '46%'], ['大小', '16%'], ['状态', '38%']].forEach(function (c) {
+          var th = document.createElement('th');
+          th.textContent = c[0];
+          th.style.width = c[1];
+          htr.appendChild(th);
+        });
+        thead.appendChild(htr);
+        table.appendChild(thead);
+
+        var tb = document.createElement('tbody');
+        items.forEach(function (e) {
+          var tr = document.createElement('tr');
+
+          var tk = document.createElement('td');
+          tk.className = 'v';                       // 借用 .v 的等宽字体与断行（flex 属性在表格里无效）
+          tk.textContent = e.key;
+          tr.appendChild(tk);
+
+          var ts = document.createElement('td');
+          ts.textContent = human(e.bytes);
+          ts.title = e.bytes + ' 字节（UTF-16 粗估）';
+          tr.appendChild(ts);
+
+          tr.appendChild(statusCell(e));
+          tb.appendChild(tr);
+        });
+        table.appendChild(tb);
+        frag.appendChild(table);
+      }
+
+      // ---- 每组小结 + 该组特有的提示 ----
+      var sum = makeSummary(items);
+
+      if (g.id === 'wave' || g.id === 'ai-role') {
+        // 索引条数 vs 实际数据键条数：不一致说明索引丢了或不同步
+        var ixKey = (g.id === 'wave') ? K_WAVE_IX : K_AI_ROLE_IX;
+        var itemPrefix = (g.id === 'wave') ? P_WAVE_ITEM : P_AI_ROLE_ITEM;
+        var dataCount = items.filter(function (e) { return e.key.indexOf(itemPrefix) === 0; }).length;
+        var ix = items.filter(function (e) { return e.key === ixKey; })[0];
+        if (ix && ix.indexCount >= 0) {
+          if (ix.indexCount !== dataCount) {
+            appendSpan(sum, ' · ⚠ 索引 ' + ix.indexCount + ' 条，但实际有 ' + dataCount +
+              ' 个数据键（索引不同步，界面上可能显示不全或点不开）', 'warn');
+          }
+        } else if (ix) {
+          appendSpan(sum, ' · ⚠ 索引键存在但解析不出 items 数组（索引已损坏）', 'no');
+        } else if (dataCount) {
+          appendSpan(sum, ' · ⚠ 索引键不存在，但有 ' + dataCount + ' 个数据键（数据还在，索引丢了）', 'warn');
+        }
+      }
+
+      if (g.id === 'ai-settings') {
+        if (!items.length) {
+          appendSpan(sum, ' · 该键不存在：AI 控制器会直接用默认值（等于还没配置过）', 'warn');
+        } else if (items[0].st === 'bad') {
+          appendSpan(sum, ' · ⚠ 配置已损坏：settings.js 下次 load() 会静默重置为默认值 —— 说明这份配置已经丢过一次了', 'no');
+        } else if (items[0].st === 'empty') {
+          appendSpan(sum, ' · 空值会被当成「没有配置」→ 加载时回落默认值', 'warn');
+        }
+      }
+
+      if (g.id === 'ai-probe') {
+        appendSpan(sum, items.length
+          ? ' · 建议清理（点「🗑 清空全部 ufo.* 数据」会一并删除，或自行在控制台 removeItem）'
+          : ' · 正常状态', items.length ? 'warn' : 'ok');
+      }
+
+      frag.appendChild(sum);
+    });
+
+    $groups.innerHTML = '';
+    $groups.appendChild(frag);
+  }
+
+  function renderAll(res) {
+    renderOverview(res);
+    renderGroups(res);
+  }
+
+  // ============================================================
+  // 存储用量（异步补上）
+  // ============================================================
+  function updateEstimate() {
+    if (!estimateCell) return;
+    var st = null;
+    try { st = navigator.storage; } catch (e) { st = null; }
+    if (!st || typeof st.estimate !== 'function') {
+      estimateCell.className = 'v warn';
+      estimateCell.textContent = '不支持（当前浏览器没有 navigator.storage.estimate）';
+      $estimateBar.style.display = 'none';
+      return;
+    }
+    var p;
+    try { p = st.estimate(); } catch (e) {
+      estimateCell.className = 'v no';
+      estimateCell.textContent = '查询失败：' + msg(e);
+      $estimateBar.style.display = 'none';
+      return;
+    }
+    Promise.resolve(p).then(function (est) {
+      if (!estimateCell) return;
+      var usage = (est && typeof est.usage === 'number') ? est.usage : 0;
+      var quota = (est && typeof est.quota === 'number') ? est.quota : 0;
+      if (!quota) {
+        estimateCell.className = 'v warn';
+        estimateCell.textContent = 'usage ' + human(usage) + ' / quota 未知';
+        $estimateBar.style.display = 'none';
+        return;
+      }
+      var pct = usage / quota * 100;
+      estimateCell.className = 'v';
+      estimateCell.textContent = 'usage ' + human(usage) + ' / quota ' + human(quota) +
+        '（占 ' + (pct > 0 && pct < 0.01 ? '<0.01' : pct.toFixed(2)) + '%）';
+      $estimateText.textContent = '整个来源的存储用量（含 IndexedDB / Cache 等，不等于本页统计的 ufo.* 体积）' +
+        (pct >= 90 ? ' ⚠ 已接近上限，建议导出备份后删掉部分波形' : '');
+      // 用量极小时给一点最小宽度，否则 6px 高的进度条会缩成一个看不出来的点
+      $estimateFill.style.width = (pct <= 0 ? '0' : Math.min(100, Math.max(1, pct))) + '%';
+      $estimateBar.style.display = '';
+    }).catch(function (e) {
+      if (!estimateCell) return;
+      estimateCell.className = 'v no';
+      estimateCell.textContent = '查询失败：' + msg(e);
+      $estimateBar.style.display = 'none';
+    });
+  }
+
+  // ============================================================
+  // 重新扫描
+  // ============================================================
+  function rescan(silent) {
+    var res = scan();
+    renderAll(res);
+    updateEstimate();
+    if (!silent) {
+      say('重新扫描完成：' + res.entries.length + ' 个 ufo.* 键，共 ' + human(res.totalBytes) +
+        '，耗时 ' + res.ms.toFixed(1) + ' ms' +
+        (res.damaged ? '；⚠ ' + res.damaged + ' 个键损坏' : '') +
+        (res.empty ? '；' + res.empty + ' 个空值' : ''));
+      if (res.enumError) say('枚举 localStorage 时出错：' + res.enumError);
+    }
+    return res;
+  }
+
+  // ============================================================
+  // 导出：全部 ufo.* 键 → 一个 JSON 文件
+  // ============================================================
+  function exportAll() {
+    var res = rescan(true);                    // 用最新数据，避免拿着过期缓存导出
+    if (!res.entries.length) {
+      say('导出中止：localStorage 里没有任何 ufo.* 键。');
+      return;
+    }
+
+    var items = {}, rawKeys = [], missing = 0;
+    res.entries.forEach(function (e) {
+      if (e.st === 'ok') items[e.key] = e.value;
+      else if (e.st === 'empty') items[e.key] = '';
+      else if (e.st === 'bad') {
+        items[e.key] = e.raw;                  // 损坏的键：原样保存原始字符串
+        rawKeys.push(e.key);
+      } else missing++;                        // 已消失的键：跳过
+    });
+
+    var payload = { exportedAt: new Date().toISOString(), origin: location.origin, items: items };
+    if (rawKeys.length) payload.rawKeys = rawKeys;   // 仅在真的有损坏键时才附加
+
+    var text = JSON.stringify(payload, null, 2);
+    var fname = 'ufo-storage-backup-' + stamp() + '.json';
+
+    try {
+      var blob = new Blob([text], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) { } }, 5000);
+    } catch (e) {
+      say('导出失败：' + msg(e));
+      return;
+    }
+
+    say('导出完成：' + Object.keys(items).length + ' 个键（' + human(bytesOf(text)) + '）→ ' + fname);
+    if (rawKeys.length) say('  ⚠ 其中 ' + rawKeys.length + ' 个键已损坏，按原始字符串保存：' + listNames(rawKeys));
+    if (missing) say('  跳过 ' + missing + ' 个枚举后已消失的键。');
+    say('  来源 origin = ' + location.origin + '，请把文件收好（里面有 API 密钥）。');
+  }
+
+  // ============================================================
+  // 恢复：选文件 → 解析 → 列出清单 → 二次确认 → 写回 → 重新扫描
+  // ============================================================
+  function previewImport(file) {
+    if (typeof file.text !== 'function') {
+      say('恢复失败：当前浏览器不支持 File.prototype.text()，请换新版 Chrome / Edge。');
+      return;
+    }
+    say('读取备份文件 ' + file.name + '（' + human(file.size) + '）…');
+
+    file.text().then(function (text) {
+      var data;
+      try {
+        data = JSON.parse(String(text).replace(/^\uFEFF/, '').trim());   // 容忍 BOM
+      } catch (e) {
+        say('恢复失败：文件不是合法 JSON —— ' + msg(e));
+        return;
+      }
+      if (!data || typeof data !== 'object' || !data.items ||
+          typeof data.items !== 'object' || Array.isArray(data.items)) {
+        say('恢复失败：结构不对，缺少对象形式的 items 字段（请选本页导出的备份文件）。');
+        return;
+      }
+
+      var rawSet = {};
+      if (Object.prototype.toString.call(data.rawKeys) === '[object Array]') {
+        data.rawKeys.forEach(function (k) { rawSet[k] = true; });
+      }
+
+      var plan = [], skipped = [], ls = null;
+      try { ls = window.localStorage; } catch (e) { ls = null; }
+      if (!ls) { say('恢复失败：localStorage 不可用（无痕模式？），无法写入。'); return; }
+
+      Object.keys(data.items).forEach(function (k) {
+        // 只允许写回 ufo.* 命名空间，手改过的文件也不会污染别的键
+        if (k.indexOf('ufo.') !== 0 || k === OWN_PROBE) { skipped.push(k); return; }
+        var v = data.items[k], raw;
+        if (rawSet[k] && typeof v === 'string') raw = v;              // 损坏键：原样写回
+        else {
+          try { raw = JSON.stringify(v); } catch (e) { skipped.push(k); return; }
+        }
+        if (typeof raw !== 'string') { skipped.push(k); return; }
+
+        var old = null;
+        try { old = ls.getItem(k); } catch (e) { old = null; }
+        plan.push({ key: k, raw: raw, bytes: bytesOf(raw), overwrite: old !== null, oldBytes: bytesOf(old) });
+      });
+
+      if (!plan.length) {
+        $preview.innerHTML = '';
+        pendingPlan = null;
+        say('没有可写入的键：' + (skipped.length ? listNames(skipped) + ' 都不在 ufo.* 命名空间内' : 'items 是空的') + '。');
+        return;
+      }
+      renderPreview(file, data, plan, skipped);
+      say('待写入 ' + plan.length + ' 个键，其中 ' +
+        plan.filter(function (p) { return p.overwrite; }).length +
+        ' 个会覆盖现有数据 —— 请核对下方清单，再点「确认写入」。');
+      if (skipped.length) say('  跳过 ' + skipped.length + ' 个非 ufo.* 键：' + listNames(skipped));
+    }).catch(function (e) {
+      say('恢复失败：读取文件出错 —— ' + msg(e));
+    });
+  }
+
+  function renderPreview(file, data, plan, skipped) {
+    pendingPlan = plan;
+    $preview.innerHTML = '';
+
+    var h = document.createElement('h2');
+    h.textContent = '待写入清单（核对后点确认，才会真正写回）';
+    $preview.appendChild(h);
+
+    var card = document.createElement('div');
+    card.className = 'card';
+
+    var head = document.createElement('div');
+    head.style.cssText = 'font-size:13px; margin-bottom:10px';
+    head.textContent = file.name + ' · ' + human(file.size) +
+      ' · 导出时间 ' + (data.exportedAt || '未知') +
+      ' · 来源 ' + (data.origin === undefined ? '未知' : data.origin);
+    card.appendChild(head);
+
+    var table = document.createElement('table');
+    var thead = document.createElement('thead');
+    var htr = document.createElement('tr');
+    [['键名', '52%'], ['将写入', '16%'], ['动作', '32%']].forEach(function (c) {
+      var th = document.createElement('th');
+      th.textContent = c[0];
+      th.style.width = c[1];
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);
+    table.appendChild(thead);
+
+    var tb = document.createElement('tbody');
+    plan.forEach(function (p) {
+      var tr = document.createElement('tr');
+
+      var tk = document.createElement('td');
+      tk.className = 'v';
+      tk.textContent = p.key;
+      tr.appendChild(tk);
+
+      var ts = document.createElement('td');
+      ts.textContent = human(p.bytes);
+      tr.appendChild(ts);
+
+      var ta = document.createElement('td');
+      if (p.overwrite) {
+        ta.className = 'warn';
+        ta.textContent = '覆盖现有（' + human(p.oldBytes) + ' → ' + human(p.bytes) + '）';
+      } else {
+        ta.className = 'ok';
+        ta.textContent = '新增';
+      }
+      tr.appendChild(ta);
+
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb);
+    card.appendChild(table);
+
+    var sum = document.createElement('div');
+    sum.className = 'dim';
+    sum.style.cssText = 'font-size:12.5px; margin-top:10px';
+    sum.textContent = '合计 ' + plan.length + ' 个键，约 ' + human(plan.reduce(function (a, p) { return a + p.bytes; }, 0)) +
+      '；覆盖 ' + plan.filter(function (p) { return p.overwrite; }).length + ' 个、新增 ' +
+      plan.filter(function (p) { return !p.overwrite; }).length + ' 个' +
+      (skipped.length ? '；跳过 ' + skipped.length + ' 个非 ufo.* 键' : '');
+    card.appendChild(sum);
+
+    var bar = document.createElement('div');
+    bar.className = 'btnbar';
+    bar.style.margin = '12px 0 0';
+
+    var okBtn = document.createElement('button');
+    okBtn.className = 'primary';
+    okBtn.textContent = '✅ 确认写入这 ' + plan.length + ' 个键';
+    okBtn.onclick = commitImport;
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '✖ 取消';
+    cancelBtn.onclick = function () {
+      pendingPlan = null;
+      $preview.innerHTML = '';
+      say('已取消，未写入任何键。');
+    };
+
+    bar.appendChild(okBtn);
+    bar.appendChild(cancelBtn);
+    card.appendChild(bar);
+
+    $preview.appendChild(card);
+  }
+
+  function commitImport() {
+    if (!pendingPlan || !pendingPlan.length) { say('没有待写入的计划（请先选一次备份文件）。'); return; }
+
+    var n = pendingPlan.length;
+    var ov = pendingPlan.filter(function (p) { return p.overwrite; }).length;
+    var names = pendingPlan.slice(0, 12).map(function (p) { return '· ' + p.key + (p.overwrite ? '（覆盖）' : ''); }).join('\n');
+    var ask = '确认把 ' + n + ' 个键写入本页的 localStorage 吗？\n\n' +
+      names + (n > 12 ? '\n… 等共 ' + n + ' 个' : '') +
+      '\n\n其中 ' + ov + ' 个会覆盖现有数据，覆盖后不可撤销。';
+    if (!confirm(ask)) { say('已在确认框取消，未写入任何键。'); return; }
+
+    var ls = null;
+    try { ls = window.localStorage; } catch (e) { ls = null; }
+    if (!ls) { say('写入失败：localStorage 不可用。'); return; }
+
+    var okN = 0, failN = 0;
+    pendingPlan.forEach(function (p) {
+      try { ls.setItem(p.key, p.raw); okN++; }
+      catch (e) { failN++; say('  写入失败 ' + p.key + '：' + msg(e)); }
+    });
+
+    pendingPlan = null;
+    $preview.innerHTML = '';
+    var res = rescan(true);                     // 自动重新扫描
+    say('恢复完成：成功 ' + okN + ' 个' +
+      (failN ? '，失败 ' + failN + ' 个（多半是超出配额，建议先删掉部分波形）' : '') +
+      '；已自动重新扫描，现在共 ' + res.entries.length + ' 个 ufo.* 键。');
+  }
+
+  // ============================================================
+  // 清空：必须两次确认
+  // ============================================================
+  function clearAll() {
+    var res = rescan(true);
+    var keys = res.entries.filter(function (e) { return e.st !== 'gone'; }).map(function (e) { return e.key; });
+    if (!keys.length) { say('localStorage 里没有 ufo.* 键，无需清空。'); return; }
+
+    var counts = {}, ixText = {};
+    res.entries.forEach(function (e) { counts[e.group] = (counts[e.group] || 0) + 1; });
+    [['wave', K_WAVE_IX], ['ai-role', K_AI_ROLE_IX]].forEach(function (pair) {
+      var ix = res.entries.filter(function (e) { return e.key === pair[1] && e.indexCount >= 0; })[0];
+      if (ix) ixText[pair[0]] = '（索引记录 ' + ix.indexCount + ' 条）';
+    });
+
+    var lines = ['将删除下面这 ' + keys.length + ' 个 ufo.* 键：'];
+    GROUPS.forEach(function (g) {
+      if (!counts[g.id]) return;
+      lines.push('  · ' + g.title + '：' + counts[g.id] + ' 个' + (ixText[g.id] || ''));
+    });
+    lines.push('');
+    lines.push('⚠ 这会丢掉全部波形与角色卡，以及 AI 配置（接口地址、密钥、安全上限），且不可撤销！');
+    lines.push('建议先点「📤 导出全部为 JSON」做备份。');
+    lines.push('');
+    lines.push('清单：' + listNames(keys, 10));
+
+    if (!confirm(lines.join('\n'))) { say('已取消清空（第一次确认）。'); return; }
+    if (!confirm('最后确认：真的要删除上面这 ' + keys.length + ' 个键吗？\n\n删除后无法恢复，除非你有导出的 JSON 备份。')) {
+      say('已取消清空（第二次确认），未删除任何键。');
+      return;
+    }
+
+    var ls = null;
+    try { ls = window.localStorage; } catch (e) { ls = null; }
+    if (!ls) { say('清空失败：localStorage 不可用。'); return; }
+
+    var okN = 0, failN = 0;
+    keys.forEach(function (k) {
+      try { ls.removeItem(k); okN++; }
+      catch (e) { failN++; say('  删除失败 ' + k + '：' + msg(e)); }
+    });
+    try { ls.removeItem(OWN_PROBE); } catch (e) { }   // 顺手清掉本页自己的探测键
+
+    var after = rescan(true);
+    say('清空完成：删除 ' + okN + ' 个键' + (failN ? '，失败 ' + failN + ' 个' : '') +
+      '；已自动重新扫描，现在还剩 ' + after.entries.length + ' 个 ufo.* 键。');
+  }
+
+  // ============================================================
+  // 绑定 + 启动
+  // ============================================================
+  document.getElementById('btnScan').onclick = function () { rescan(false); };
+  document.getElementById('btnExport').onclick = exportAll;
+  document.getElementById('btnImport').onclick = function () {
+    $file.value = '';        // 允许连续选同一个文件
+    $file.click();
+  };
+  $file.onchange = function () {
+    var f = this.files && this.files[0];
+    if (f) previewImport(f);
+  };
+  document.getElementById('btnClear').onclick = clearAll;
+
+  var first = rescan(true);
+  say('页面就绪。当前 localStorage ' + (first.available ? '可用' : '不可用（' + first.reason + '）') +
+    '，扫到 ' + first.entries.length + ' 个 ufo.* 键，共 ' + human(first.totalBytes) +
+    '，耗时 ' + first.ms.toFixed(1) + ' ms。');
+  if (!first.available) {
+    say('提示：无痕 / 隐私模式下 localStorage 可能直接抛异常，此时本页只能看、不能改。');
+  }
+  updateEstimate();
+})();
+</script>
+</body>
+</html>

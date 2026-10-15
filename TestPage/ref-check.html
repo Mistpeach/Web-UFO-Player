@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>资源引用完整性检查</title>
+<style>
+  :root{ --bg:#0f1729; --panel:#16213e; --line:#0f3460; --text:#e0e0e0; --dim:#8899aa;
+         --accent:#a78bfa; --ok:#3ddc97; --no:#ff6b6b; --warn:#fbbf24; }
+  body{ background:var(--bg); color:var(--text); font-family:system-ui,"Microsoft YaHei",sans-serif;
+        max-width:900px; margin:0 auto; padding:28px 20px 60px; line-height:1.7; }
+  h1{ font-size:1.5rem; color:var(--accent); margin:0 0 6px; }
+  .sub{ color:var(--dim); font-size:13px; margin:0 0 18px; }
+  h2{ font-size:14px; color:var(--dim); font-weight:600; margin:22px 0 8px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:10px; }
+  .row{ display:flex; gap:12px; align-items:baseline; padding:8px 12px; border-radius:6px;
+        background:var(--panel); border:1px solid var(--line); margin-bottom:6px; }
+  .k{ flex:0 0 220px; color:var(--dim); font-size:13px; }
+  .v{ flex:1; min-width:0; font-family:Consolas,"Courier New",monospace; font-size:13.5px; word-break:break-all; }
+  .ok{ color:var(--ok); } .no{ color:var(--no); } .warn{ color:var(--warn); } .dim{ color:var(--dim); }
+  .btnbar{ display:flex; gap:10px; flex-wrap:wrap; margin:4px 0 16px; }
+  button{ padding:9px 18px; font-size:14px; border-radius:6px; cursor:pointer; font-family:inherit;
+          border:1px solid var(--line); background:var(--panel); color:var(--text); }
+  button:hover{ background:var(--line); }
+  button.primary{ border:none; background:linear-gradient(135deg,#533483,#a855f7); color:#fff; }
+  button.primary:hover{ opacity:.88; }
+  button.danger{ background:#3a1a1a; border-color:#7a2a2a; color:#ff9d9d; }
+  button:disabled{ opacity:.5; cursor:default; }
+  #log{ margin-top:12px; padding:12px; background:#0d1424; border:1px solid var(--line); border-radius:6px;
+        font-family:Consolas,"Courier New",monospace; font-size:12.5px; white-space:pre-wrap;
+        min-height:70px; color:#c0c0c0; }
+  .drop{ border:2px dashed var(--line); border-radius:10px; padding:34px 18px; text-align:center;
+         color:var(--dim); font-size:14px; transition:border-color .2s, background .2s; }
+  .drop.over{ border-color:var(--accent); background:#1a1a2e; color:var(--text); }
+  .note{ margin-top:22px; padding:14px; background:#1a1a2e; border-left:3px solid #533483;
+         border-radius:4px; font-size:13px; color:#aaa; }
+  .note b{ color:var(--text); }
+  code{ background:#1a1a2e; padding:1px 5px; border-radius:3px; color:var(--accent); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ border:1px solid var(--line); padding:6px 9px; text-align:left; vertical-align:top; }
+  th{ background:#1a1a2e; color:var(--dim); font-weight:600; }
+  td.mono{ font-family:Consolas,"Courier New",monospace; font-size:12.5px; word-break:break-all; }
+  @media (max-width:620px){ .k{ flex-basis:100%; } .row{ flex-wrap:wrap; gap:2px; } }
+</style>
+</head>
+<body>
+
+<h1>🔗 资源引用完整性检查</h1>
+<p class="sub">
+  把仓库根目录（或任意一个目录）<b>整个拖进下面的框里</b>，本页会逐个读入其中的 HTML / CSS，
+  抽出所有 <code>href</code> / <code>src</code> / <code>url()</code> / <code>@import</code>,
+  再判断这些本地资源是否真的存在于你拖进来的文件集合里。全程离线、不联网、不上传。
+</p>
+
+<label class="drop" id="drop">
+  <input type="file" id="pick" webkitdirectory multiple hidden>
+  <div style="font-size:15px;color:var(--text);margin-bottom:6px;">📁 把仓库根目录拖到这里</div>
+  <div>或者 <span style="color:var(--accent);text-decoration:underline;">点这里选择文件夹</span>（也支持一次拖入多个散文件）</div>
+  <div class="dim" style="font-size:12.5px;margin-top:8px;">
+    拖放时会递归遍历子目录（自动跳过 <code>.git</code>、<code>node_modules</code>、<code>dist</code>、<code>build</code> 等目录）
+  </div>
+</label>
+
+<div class="card" style="margin-top:12px;">
+  <label style="display:flex;gap:9px;align-items:baseline;cursor:pointer;">
+    <input type="checkbox" id="optJs" style="margin-top:6px;flex:0 0 auto;">
+    <span>
+      同时检查 <code>.js</code> 里的字符串路径
+      <span class="dim" style="font-size:12.5px;">
+        —— 用正则从 JS 源码里猜出形如 <code>'...html'</code> / <code>"../x/y.js"</code> 的本地路径一并校验。
+        这部分是<b>猜测</b>，可能误报（字符串可能只是注释、日志文案或运行时拼接的半截路径），报告里会单独标注来源。
+      </span>
+    </span>
+  </label>
+</div>
+
+<div class="btnbar" style="margin-top:14px;">
+  <button class="primary" id="btnRun" disabled>🔄 重新检查</button>
+  <button id="btnCopy" disabled>📋 复制报告</button>
+  <button class="danger" id="btnClear" disabled>🗑 清空</button>
+</div>
+
+<div id="log">等待拖入目录…</div>
+
+<div id="progress" style="display:none;">
+  <div class="row"><span class="k" id="progK"></span><span class="v" id="progV"></span></div>
+</div>
+
+<div id="report"></div>
+
+<div class="note">
+  <b>为什么必须「拖文件夹」，而不是自动扫描？</b><br>
+  · 浏览器不允许 <code>file://</code> 页面读取目录（没有目录列表 API）；用 <code>fetch</code> 去读本地文件会被 CORS 拦下。<br>
+  · 但<b>你手动拖进来的文件夹</b>不一样：<code>DataTransferItem.webkitGetAsEntry()</code> 可以递归拿到每个文件，
+  再用 <code>File.prototype.text()</code> 读出内容 —— 它在 <code>file://</code> 下完全可用。<br>
+  · 所以本页的模型是「用户提供文件集合，页面只做分析」，因此<b>双击本文件直接打开就能用，不需要任何服务器</b>。<br>
+  <b>这个检查有什么用？</b><br>
+  · 最典型的静默事故是「归档快照 / 发布目录漏带了 CSS」：页面照样能打开、按钮也在，只是完全没样式，
+  肉眼很难第一时间发现。仓库里 <code>WaveControler\history\gen_versions.ps1</code> 有一份针对快照目录的同款检查；
+  本页是它的<b>仓库级</b>版本，范围是「你拖进来的整棵目录树」。<br>
+  · 顺带一个自查结论：把当前仓库整棵树拖进来跑一遍，是 79 个 HTML / CSS、113 条本地引用，
+  结果是零失效 —— 也就是说现在没有这类漏带问题。
+  <b>相对路径的基准：</b><br>
+  · 每个引用都相对于<b>引用所在文件的那个目录</b>解析，<b>不是</b>相对于你拖入的根目录。
+  例如 <code>WaveControler\RemoteSlave.html</code> 里的 <code>js/link.js</code> 会被解析成
+  <code>WaveControler/js/link.js</code>，而不是 <code>js/link.js</code>。<br>
+  <b>判定口径：</b><br>
+  · 大小写不敏感（Windows 文件系统本来就不区分大小写）；<code>\</code> 与 <code>/</code> 等价；
+  比较前会去掉 <code>?query</code> 与 <code>#hash</code>、还原 <code>%20</code> 之类的转义。<br>
+  · 会跳过 <code>http(s):</code> / <code>//</code> / <code>data:</code> / <code>mailto:</code> / <code>javascript:</code> /
+  <code>#</code> 开头 / <code>/</code> 开头的站点绝对路径 / 空串。<br>
+  · 「文件不存在」严格来说只代表<b>不在你拖进来的集合里</b> —— 如果你只拖了仓库的一部分，报错里可能混有真·外部依赖。
+  想得到准确结论就拖整个仓库根目录。
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ===================== 0. DOM 与工具 ===================== */
+  var drop      = document.getElementById('drop');
+  var picker    = document.getElementById('pick');
+  var optJs     = document.getElementById('optJs');
+  var btnRun    = document.getElementById('btnRun');
+  var btnCopy   = document.getElementById('btnCopy');
+  var btnClear  = document.getElementById('btnClear');
+  var logEl     = document.getElementById('log');
+  var reportEl  = document.getElementById('report');
+  var progWrap  = document.getElementById('progress');
+  var progK     = document.getElementById('progK');
+  var progV     = document.getElementById('progV');
+
+  var MAX_READ_CONCURRENCY = 8;    // 每批最多同时打开 8 个文件句柄
+  var MAX_FILE_BYTES = 8 * 1024 * 1024;   // 超过 8MB 的文件不当文本解析（通常是打包产物）
+  var SKIP_DIRS = { '.git': 1, '.svn': 1, '.hg': 1, 'node_modules': 1, 'dist': 1, 'build': 1,
+                    '.cache': 1, '.idea': 1, '.vscode': 1, '$recycle.bin': 1, 'system volume information': 1 };
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;';
+    });
+  }
+  function say(msg) { logEl.textContent += '\n' + msg; }
+  function fail(msg) { say(msg + (msg.indexOf('❌') < 0 ? ' ❌' : '')); }
+  function fmtSize(n) {
+    if (n == null) return '—';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  // 让浏览器有机会重绘（否则长循环会把界面卡死）
+  function nextFrame() { return new Promise(function (r) { setTimeout(r, 0); }); }
+  function setProgress(k, v) {
+    if (k == null) { progWrap.style.display = 'none'; return; }
+    progWrap.style.display = '';
+    progK.textContent = k;
+    progV.textContent = v;
+  }
+  function row(out, k, v, cls) {
+    var d = document.createElement('div');
+    d.className = 'row';
+    d.innerHTML = '<span class="k"></span><span class="v ' + (cls || '') + '"></span>';
+    d.querySelector('.k').textContent = k;
+    d.querySelector('.v').textContent = v;
+    out.appendChild(d);
+    return d;
+  }
+
+  /* ===================== 1. 路径工具（浏览器里没有 path 模块） ===================== */
+  // \ → /，压掉重复斜杠，去掉末尾斜杠（但保留根 "/"）
+  function normSlashes(p) {
+    var s = String(p == null ? '' : p).replace(/\\/g, '/');
+    s = s.replace(/\/{2,}/g, '/');
+    while (s.length > 1 && s.charAt(s.length - 1) === '/') s = s.slice(0, -1);
+    return s;
+  }
+  // 大小写不敏感的查表键
+  function keyOf(p) { return normSlashes(p).toLowerCase(); }
+  // 显示用：以拖入根目录为准的相对路径
+  function relOf(prefix, p) { return normSlashes(String(prefix || '') + String(p || '')); }
+
+  function splitMember(member) {
+    var m = normSlashes(member);
+    if (m === '/' || m === '.') m = '';
+    else if (m.charAt(0) === '/') m = m.slice(1);
+    var i = m.lastIndexOf('/');
+    return { dir: i < 0 ? '' : m.slice(0, i), base: i < 0 ? m : m.slice(i + 1) };
+  }
+
+  // 去掉 ?query 与 #hash（在解码之前做，避免 %23 / %3F 被误当成片段分隔符）
+  function stripQueryHash(u) {
+    var s = String(u);
+    var q = s.indexOf('?'); if (q >= 0) s = s.slice(0, q);
+    var h = s.indexOf('#'); if (h >= 0) s = s.slice(0, h);
+    return s;
+  }
+  // 容错解码：非法转义序列（比如 %zz、%E4）原样保留，不抛异常
+  function safeDecode(u) {
+    var s = String(u);
+    if (s.indexOf('%') < 0) return s;
+    try { return decodeURIComponent(s); } catch (e) { return s; }
+  }
+  // 栈式解析 ./ 与 ../，"." 与 ".." 只对目录生效
+  function resolvePath(dir, target) {
+    var base = normSlashes(dir);
+    var t = normSlashes(target);
+    var parts = (t.charAt(0) === '/' ? t.slice(1) : base + '/' + t).split('/');
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var seg = parts[i];
+      if (seg === '' || seg === '.') continue;
+      if (seg === '..') { out.pop(); continue; }   // 越出根目录时自然停在根上
+      out.push(seg);
+    }
+    return out.join('/');
+  }
+
+  /* ===================== 2. 该不该分析 / 跳过哪些链接 ===================== */
+  function extOf(p) {
+    var m = /\.([A-Za-z0-9]+)$/.exec(normSlashes(p));
+    return m ? m[1].toLowerCase() : '';
+  }
+  // 只分析 .html/.htm/.css（.js 由复选框控制）
+  function extKind(p) {
+    var e = extOf(p);
+    if (e === 'html' || e === 'htm' || e === 'css') return e === 'css' ? 'css' : 'html';
+    if (e === 'js') return 'js';
+    return '';
+  }
+  // 返回 true 表示「这个引用不用校验」，同时给出原因（用于统计）
+  function skipRef(raw, decoded) {
+    var s = String(decoded == null ? raw : decoded).trim();
+    if (s === '') return 'empty';
+    if (raw !== s && String(raw).trim() === '') return 'empty';
+    var lower = s.toLowerCase();
+    if (lower.indexOf('http:') === 0) return '外部';
+    if (lower.indexOf('https:') === 0) return '外部';
+    if (s.indexOf('//') === 0) return '协议相对';
+    if (lower.indexOf('data:') === 0) return '内联数据';
+    if (lower.indexOf('mailto:') === 0) return '邮件链接';
+    if (lower.indexOf('javascript:') === 0) return '脚本链接';
+    if (lower.indexOf('blob:') === 0) return '内存对象';
+    if (lower.indexOf('file:') === 0) return '本地协议';
+    if (s.charAt(0) === '#') return '页内锚点';
+    if (s.charAt(0) === '/') return '站点绝对路径';
+    // Windows 盘符绝对路径（C:\... 或 C:/...）
+    if (/^[A-Za-z]:[\\/]/.test(s)) return '盘符绝对路径';
+    return '';
+  }
+
+  /* ===================== 3. 抽取引用 ===================== */
+  // HTML：href="..." / src='...' / href=foo.html（无引号也认）
+  // 无引号分支排除 = 和 /，避免把 JS 模板串里的拼接 `href=` + `"' + esc(url) + '"` 切成假路径
+  var RE_HTML = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>=][^\s"'<>]*))/gi;
+  // CSS：@import "..." / @import url(...) / url(...) / url(...)
+  var RE_CSS_IMPORT = /@import\s+(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)|"([^"]*)"|'([^']*)')/gi;
+  var RE_CSS_URL    = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)/gi;
+  // 只收看起来像本地文件路径的短字符串字面量。
+  // 两个分支分开写：双引号里允许 \" 转义，单引号里允许 \' 转义 —— 否则
+  // 源码里的 "..\/js\/link.js" 会被从转义引号处截断，抽出只剩一个引号的垃圾候选。
+  var RE_JS_STR = /"((?:\\.|[^"\\\n]){0,200}?\.[A-Za-z0-9]{2,5})"|'((?:\\.|[^'\\\n]){0,200}?\.[A-Za-z0-9]{2,5})'/g;
+  var LOCAL_EXT = /\.(html?|css|js|mjs|json|png|jpe?g|gif|svg|webp|ico|bmp|woff2?|ttf|otf|eot|mp3|wav|ogg|mp4|webm|txt|md)$/i;
+
+  // 只扫 <script> 与 <style> 的内容对 href/src 是纯噪音：
+  //   · 页内 <style> 的 url() 由 CSS 那一遍负责；
+  //   · <script> 里几乎都是 JS 代码和模板串，'<a href="' + esc(url) + '">' 这种拼接
+  //     会被抽成 ` + esc(url) +` 这样的假路径（实测在真仓库里全是误报）。
+  // 所以先把这两块整段剔掉，再抽 href/src。
+  function stripCodeBlocks(html) {
+    return String(html).replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
+                       .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ');
+  }
+
+  // .js 的候选路径需再过两道闸：必须是本地相对路径、扩展名眼熟、且不含转义斜杠
+  function jsCandidateOk(s) {
+    if (s.indexOf('\\') >= 0) return false;              // 形如 js\/link.js 的转义写法一律放弃
+    if (s.indexOf('/') === 0) return false;
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(s)) return false;   // 带协议的
+    if (s.indexOf(' ') >= 0 && !LOCAL_EXT.test(s)) return false;
+    return true;
+  }
+
+  function makeRef(kind, uri, raw) {
+    var u = String(uri == null ? '' : uri).trim();
+    var r = { kind: kind, uri: u, raw: raw ? String(raw) : u, resolved: '' };
+    if (r.raw.length > 120) r.raw = r.raw.slice(0, 117) + '…';
+    return r;
+  }
+  function reAll(re, text, out, kind) {
+    re.lastIndex = 0;
+    var m, guard = 0;
+    while ((m = re.exec(text)) !== null) {
+      if (m[0] === '') { re.lastIndex++; continue; }
+      if (++guard > 6000) break;                  // 超大文件保险丝
+      for (var i = 1; i < m.length; i++) {
+        if (typeof m[i] === 'string' && m[i] !== '') {
+          out.push(makeRef(kind, m[i], null));
+          break;
+        }
+      }
+    }
+  }
+  function extractRefs(text, kind) {
+    var out = [];
+    if (kind === 'html')      reAll(RE_HTML, stripCodeBlocks(text), out, 'HTML');
+    else if (kind === 'css') {
+      reAll(RE_CSS_IMPORT, text, out, 'CSS @import');
+      reAll(RE_CSS_URL,    text, out, 'CSS url()');
+    } else if (kind === 'js') {
+      reAll(RE_JS_STR, text, out, 'JS 字符串(猜测)');
+      out = out.filter(function (r) { return jsCandidateOk(r.uri); });
+    }
+    return out;
+  }
+
+  /* ===================== 4. 目录 / 文件收集 ===================== */
+  // webkitGetAsEntry 递归遍历。readEntries 一次只给一批，必须循环调用到返回空数组为止。
+  function visitEntry(entry, path, visitedDirs, out) {
+    return new Promise(function (resolve) {
+      if (!entry) return resolve();
+      if (entry.isFile) {
+        entry.file(function (f) {
+          out.push({ path: normSlashes(path + entry.name), file: f });
+          resolve();
+        }, function () { resolve(); });                     // 单个文件读不到就跳过，不炸整棵树
+        return;
+      }
+      if (!entry.isDirectory) return resolve();
+
+      var dirPath = normSlashes(path + entry.name) + '/';
+      var vk = keyOf(dirPath);
+      if (visitedDirs[vk]) return resolve();                // 防死循环（软链/环形挂载）
+      if (SKIP_DIRS[String(entry.name).toLowerCase()]) {
+        say('  ↳ 跳过目录 ' + dirPath);
+        return resolve();
+      }
+      visitedDirs[vk] = 1;
+
+      var reader = entry.createReader();
+      var all = [];
+      (function readBatch() {
+        reader.readEntries(function (batch) {
+          if (!batch || batch.length === 0) {
+            var i = 0;
+            (function step() {
+              if (i >= all.length) return resolve();
+              var e = all[i++];
+              visitEntry(e, dirPath, visitedDirs, out).then(step, step);
+            })();
+            return;
+          }
+          for (var i = 0; i < batch.length; i++) all.push(batch[i]);
+          readBatch();                                      // 还有下一批
+        }, function () { resolve(); });
+      })();
+    });
+  }
+
+  function collectFromDrop(dt) {
+    var items = dt.items ? Array.prototype.slice.call(dt.items) : [];
+    var entries = [], fallbackFiles = [], i;
+    // ⚠ 必须在 drop 事件同步阶段就把 entry 取出来：事件结束后 DataTransferItemList 会失效
+    for (i = 0; i < items.length; i++) {
+      if (items[i].kind !== 'file') continue;
+      var entry = null;
+      if (typeof items[i].webkitGetAsEntry === 'function') {
+        try { entry = items[i].webkitGetAsEntry(); } catch (e) { entry = null; }
+      }
+      if (entry) entries.push(entry);
+      else if (typeof items[i].getAsFile === 'function') {
+        var f = items[i].getAsFile();
+        if (f) fallbackFiles.push(f);
+      }
+    }
+    if (!entries.length && !fallbackFiles.length && dt.files && dt.files.length) {
+      for (i = 0; i < dt.files.length; i++) fallbackFiles.push(dt.files[i]);
+    }
+    return { entries: entries, files: fallbackFiles };
+  }
+
+  function scanEntries(entries) {
+    var out = [];
+    var visitedDirs = Object.create(null);
+    var i = 0;
+    return (function step() {
+      if (i >= entries.length) return Promise.resolve(out);
+      var e = entries[i++];
+      return visitEntry(e, '', visitedDirs, out).then(function () {
+        if (i % 64 === 0) {
+          setProgress('正在遍历目录…', '已发现 ' + out.length + ' 个文件');
+          return nextFrame().then(step);
+        }
+        return step();
+      });
+    })();
+  }
+
+  /* ===================== 5. 文件索引与批量读取 ===================== */
+  // 按小写路径去重（后拖入的覆盖先拖入的），生成 files / paths 两张表
+  function buildIndex(files) {
+    var map = Object.create(null);
+    var paths = Object.create(null);
+    var kept = [];
+    for (var i = 0; i < files.length; i++) {
+      var it = files[i];
+      if (!it || !it.file) continue;
+      var p = normSlashes(it.path);
+      if (!p) continue;
+      var k = keyOf(p);
+      paths[k] = true;
+      if (map[k]) continue;                     // 只对重复路径计数一次
+      map[k] = { path: p, file: it.file, key: k };
+      kept.push(map[k]);
+    }
+    // 集合若全部位于同一个顶层目录下（拖整仓时必然如此），记下这个前缀，
+    // 供 checkTarget 在「引用写成了相对仓库根」时兜底。
+    var stripTop = '';
+    for (var j = 0; j < kept.length; j++) {
+      var seg = kept[j].path.split('/')[0];
+      if (j === 0) stripTop = seg;
+      else if (stripTop !== seg) { stripTop = ''; break; }
+    }
+    return { map: map, paths: paths, kept: kept, stripTop: stripTop };
+  }
+
+  function readAll(kept, token) {
+    var texts = Object.create(null);
+    var oversized = 0;
+    var i = 0;
+    return (function step() {
+      if (token !== scanToken) return Promise.resolve(texts);      // 被新任务取代
+      if (i >= kept.length) return Promise.resolve(texts);
+      var n = Math.min(MAX_READ_CONCURRENCY, kept.length - i);
+      var batch = [];
+      for (var j = 0; j < n; j++) batch.push(kept[i + j]);
+      i += n;
+      var jobs = batch.map(function (m) {
+        if (m.file.size > MAX_FILE_BYTES) {          // 超大文件不读，当作文本读不出
+          oversized++;
+          texts[m.key] = null;
+          return Promise.resolve();
+        }
+        return m.file.text().then(function (t) { texts[m.key] = t; },
+                                  function () { texts[m.key] = null; });
+      });
+      return Promise.all(jobs).then(function () {
+        setProgress('正在读取文件…', i + ' / ' + kept.length
+          + (oversized ? '（跳过超大文件 ' + oversized + ' 个）' : ''));
+        return nextFrame().then(step);
+      });
+    })();
+  }
+
+  /* ===================== 6. 引用校验 ===================== */
+  // 文件是否存在于集合里（大小写不敏感 / 分隔符统一 / 目录回退到 index.html）
+  // 返回 { ok, resolved, how }；resolved 始终是「相对拖入根目录」的路径。
+  function checkTarget(resolved, paths, stripTop) {
+    var r = normSlashes(resolved);
+    if (paths[keyOf(r)]) return { ok: true, resolved: r, how: 'exact' };
+    if (/\/index\.html?$/i.test(r) && paths[keyOf(r)]) return { ok: true, resolved: r, how: 'exact' };
+    var alt = r + '/index.html';
+    if (paths[keyOf(alt)]) return { ok: true, resolved: alt, how: 'dir-index' };
+    // 兜底：集合整体位于一个顶层目录下，而引用写成了「相对仓库根」（如 'index.html'）
+    if (stripTop) {
+      var stripped = r.indexOf(stripTop + '/') === 0 ? r.slice(stripTop.length + 1) : r;
+      if (stripped !== r) {
+        if (paths[keyOf(stripped)]) return { ok: true, resolved: stripped, how: 'strip-top' };
+        var alt2 = stripped + '/index.html';
+        if (paths[keyOf(alt2)]) return { ok: true, resolved: alt2, how: 'strip-top-dir' };
+      }
+    }
+    return { ok: false, resolved: r, how: 'miss' };
+  }
+
+  function analyseAsync(idx, jsEnabled, token) {
+    var kept = idx.kept, paths = idx.paths;
+    var analysed = [], skipped = 0, totalRefs = 0, broken = [];
+    var okTargets = Object.create(null);
+    var i = 0;
+
+    return (function fileStep() {
+      if (token !== scanToken) return Promise.resolve(null);
+      if (i >= kept.length) return Promise.resolve(kept.length);
+      var m = kept[i++];
+      var kind = extKind(m.path);
+      if (!kind || (kind === 'js' && !jsEnabled)) {
+        skipped++;
+        return fileStep();
+      }
+      var text = idx.texts[m.key];
+      if (typeof text !== 'string') { skipped++; return fileStep(); }
+
+      analysed.push(m);
+      var refs = extractRefs(text, kind);
+      var localDir = splitMember(m.path).dir;
+      var seen = Object.create(null);
+
+      for (var k = 0; k < refs.length; k++) {
+        var r = refs[k];
+        var decoded = safeDecode(stripQueryHash(r.uri)).trim();
+        if (!decoded || String(r.uri).trim() === '') continue;
+        if (skipRef(r.uri, decoded)) continue;
+        var resolved = resolvePath(localDir, decoded);
+        if (!resolved) continue;
+        totalRefs++;
+        // 先看字面路径是否命中；没命中再依次尝试「目录 → index.html」和「去掉顶层目录前缀」
+        var hit = checkTarget(resolved, paths, idx.stripTop);
+        if (!hit.ok) {
+          // 真正找不到 → 记一条失效引用（同一文件内按 目标+原文 去重）
+          var dk = keyOf(hit.resolved) + '|' + r.uri;
+          if (!seen[dk]) {
+            seen[dk] = 1;
+            broken.push({
+              file: relOf(rootPrefix, m.path),
+              raw: r.raw,
+              resolved: relOf(rootPrefix, hit.resolved),
+              kind: r.kind,
+              guess: r.kind.indexOf('JS') === 0
+            });
+          }
+        } else {
+          okTargets[keyOf(hit.resolved)] = 1;
+        }
+      }
+      if (i % 40 === 0) {
+        setProgress('正在解析引用…', i + ' / ' + kept.length);
+        return nextFrame().then(fileStep);
+      }
+      return fileStep();
+    })().then(function () {
+      if (token !== scanToken) return null;
+      // 孤儿 HTML：在集合里，但没有被任何其它 HTML/CSS 引用过
+      var orphans = [];
+      for (var j = 0; j < kept.length; j++) {
+        var p = kept[j].path;
+        if (extKind(p) !== 'html') continue;
+        if (!okTargets[keyOf(p)]) {
+          orphans.push({ path: relOf(rootPrefix, p), size: kept[j].file.size });
+        }
+      }
+      orphans.sort(function (a, b) { return a.path.localeCompare(b.path); });
+      broken.sort(function (a, b) {
+        var c = a.file.localeCompare(b.file);
+        if (c) return c;
+        return a.resolved.localeCompare(b.resolved);
+      });
+      return {
+        analysed: analysed.length,
+        skipped: skipped,
+        refs: totalRefs,
+        broken: broken,
+        orphans: orphans
+      };
+    });
+  }
+
+  /* ===================== 7. 报告渲染 ===================== */
+  var lastReport = null;        // 最近一次扫描结果（供「复制报告」使用）
+  var lastPlain = '';           // 纯文本报告缓存
+  var fileSet = [];             // 当前用户提供的文件集合 [{path,file}]
+  var scanToken = 0;            // 竞态令牌：新任务让旧任务失效
+  var rootPrefix = '';          // 目录拖入时用于显示的根前缀
+  var scanning = false;
+
+  function renderReport(res) {
+    reportEl.innerHTML = '';
+    var frag = document.createDocumentFragment();
+
+    frag.appendChild(el('h2', null, '概览'));
+    var out = el('div');
+    row(out, '拖入文件总数', String(res.totalFiles));
+    row(out, '参与分析的文件数', res.analysed + '（.html/.htm/.css' + (res.jsOn ? ' + .js' : '') + '）');
+    if (res.skipped) row(out, '跳过的文件数（非目标类型 / 读不出）', String(res.skipped), 'dim');
+    row(out, '提取到的引用总数', String(res.refs));
+    row(out, '失效引用数',
+      res.broken.length === 0 ? '0  ✅ 全部命中' : String(res.broken.length) + '  （见下表）',
+      res.broken.length ? 'no' : 'ok');
+    row(out, '孤儿 HTML 数（仅供参考）', String(res.orphans.length),
+      res.orphans.length ? 'warn' : 'ok');
+    row(out, '耗时', res.ms + ' ms', 'dim');
+    frag.appendChild(out);
+
+    if (res.broken.length === 0) {
+      frag.appendChild(el('h2', null, '结论'));
+      var okCard = el('div', 'card');
+      okCard.appendChild(el('div', 'ok',
+        '✅ 在你拖入的 ' + res.totalFiles + ' 个文件里，' + res.analysed +
+        ' 个 HTML / CSS 文件共 ' + res.refs + ' 条本地引用，全部指向真实存在的文件。'));
+      frag.appendChild(okCard);
+    } else {
+      frag.appendChild(el('h2', null, '失效引用（' + res.broken.length + '）'));
+      frag.appendChild(refTable(res.broken));
+      if (res.broken.some(function (b) { return b.guess; })) {
+        frag.appendChild(el('p', 'dim',
+          '注：判定列标有「JS 猜测」的行来自 .js 源码里的字符串，正则猜出来的路径不保证是真实引用，可能是误报。'));
+      }
+    }
+
+    frag.appendChild(el('h2', null,
+      '孤儿 HTML（' + res.orphans.length + '）'));
+    frag.appendChild(el('p', 'dim',
+      '这些 HTML 在拖入的集合里、但没有任何其它 HTML / CSS 引用它们。' +
+      '⚠ 这不代表有问题 —— 入口页、独立工具页、测试页、历史归档页本来就没人引用。' +
+      '本表只用来帮你发现「做完了但忘了接进入口」的页面。'));
+    frag.appendChild(orphanTable(res.orphans));
+
+    reportEl.appendChild(frag);
+  }
+
+  function el(tag, cls, text) {
+    var d = document.createElement(tag);
+    if (cls) d.className = cls;
+    if (text != null) d.textContent = text;
+    if (tag === 'div' && cls === 'card') d.style.overflowX = 'auto';
+    return d;
+  }
+
+  function refTable(broken) {
+    var wrap = document.createElement('div');
+    wrap.className = 'card';
+    wrap.style.overflowX = 'auto';
+    var html = '<table><thead><tr>'
+      + '<th style="width:24%;">所在文件（相对路径）</th>'
+      + '<th style="width:24%;">引用原文</th>'
+      + '<th style="width:32%;">解析后的目标路径</th>'
+      + '<th style="width:20%;">判定</th>'
+      + '</tr></thead><tbody>';
+    for (var i = 0; i < broken.length; i++) {
+      var b = broken[i];
+      html += '<tr>'
+        + '<td class="mono">' + esc(b.file) + '</td>'
+        + '<td class="mono">' + esc(b.raw) + '<br><span class="dim">来源：' + esc(b.kind) + '</span></td>'
+        + '<td class="mono">' + esc(b.resolved) + '</td>'
+        + '<td class="no">文件不存在' + (b.guess ? '<br><span class="warn">（JS 猜测，可能误报）</span>' : '') + '</td>'
+        + '</tr>';
+    }
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+    return wrap;
+  }
+
+  function orphanTable(orphans) {
+    var wrap = document.createElement('div');
+    wrap.className = 'card';
+    wrap.style.overflowX = 'auto';
+    if (!orphans.length) {
+      wrap.textContent = '（无：集合里每个 HTML 都被别的页面引用过）';
+      return wrap;
+    }
+    var html = '<table><thead><tr>'
+      + '<th style="width:70%;">HTML 文件（相对路径）</th>'
+      + '<th style="width:30%;">大小</th>'
+      + '</tr></thead><tbody>';
+    for (var i = 0; i < orphans.length; i++) {
+      html += '<tr><td class="mono">' + esc(orphans[i].path) + '</td>'
+        + '<td class="mono dim">' + esc(fmtSize(orphans[i].size)) + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+    return wrap;
+  }
+
+  /* ===================== 8. 纯文本报告 + 剪贴板 ===================== */
+  function buildPlain(res) {
+    var L = [];
+    L.push('资源引用完整性检查报告（Web-UFO-Player TestPage/ref-check.html）');
+    L.push('生成时间：' + new Date().toLocaleString());
+    L.push('检查范围：用户拖入的 ' + res.totalFiles + ' 个文件；分析 ' + res.analysed
+      + ' 个（.html/.htm/.css' + (res.jsOn ? ' + .js' : '') + '）；跳过 ' + res.skipped + ' 个');
+    L.push('提取到的引用总数：' + res.refs);
+    L.push('失效引用数：' + res.broken.length);
+    L.push('孤儿 HTML 数：' + res.orphans.length + '（仅供排查，不代表有问题）');
+    L.push('耗时：' + res.ms + ' ms');
+    L.push('');
+    L.push('= 失效引用 =');
+    if (!res.broken.length) {
+      L.push('（无）✅ 全部本地引用都指向真实存在的文件。');
+    } else {
+      L.push(pad('所在文件', 44) + pad('引用原文', 34) + pad('解析后的目标路径', 46) + '判定');
+      L.push(new Array(136).join('-'));
+      for (var i = 0; i < res.broken.length; i++) {
+        var b = res.broken[i];
+        L.push(pad(b.file, 44) + pad(b.raw, 34) + pad(b.resolved, 46) + '文件不存在'
+          + (b.guess ? '（JS 猜测，可能误报）' : '') + '   [' + b.kind + ']');
+      }
+    }
+    L.push('');
+    L.push('= 孤儿 HTML（在集合里但没被任何 HTML/CSS 引用；不代表有问题）=');
+    if (!res.orphans.length) L.push('（无）');
+    else for (var j = 0; j < res.orphans.length; j++) {
+      L.push('  ' + res.orphans[j].path + '   ' + fmtSize(res.orphans[j].size));
+    }
+    L.push('');
+    L.push('注：相对路径都相对于「引用所在文件的目录」解析，不是相对于拖入的根目录。');
+    L.push('注：「文件不存在」= 不在你拖入的集合里。若只拖了仓库的一部分，可能混有真·外部依赖。');
+    return L.join('\n');
+  }
+  // 中文按 2 列宽估算，让纯文本表格大致对齐
+  function pad(s, n) {
+    s = String(s == null ? '' : s);
+    var w = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      w += (c > 0x2e80 && c < 0xffef) ? 2 : 1;
+    }
+    var p = n - w;
+    return s + (p > 0 ? new Array(p + 1).join(' ') : ' ') + ' ';
+  }
+
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { ta.setSelectionRange(0, text.length); } catch (e) { }
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function copyReport() {
+    if (!lastPlain) { say('还没有报告可复制 —— 先拖入目录并完成一次检查。'); return; }
+    var text = lastPlain;
+    function viaTextarea() {
+      if (fallbackCopy(text)) { say('📋 报告已复制到剪贴板（execCommand 回退方式）。'); return; }
+      // 两条路都失败 → 把纯文本放进日志区让人手动复制
+      say('❌ 自动复制失败（浏览器不允许写剪贴板）。下面是纯文本报告，请手动全选复制：');
+      say('---------- 报告开始 ----------');
+      say(text);
+      say('---------- 报告结束 ----------');
+      try { logEl.scrollIntoView({ block: 'nearest' }); } catch (e) { }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        say('📋 报告已复制到剪贴板。');
+      }, viaTextarea);
+    } else {
+      viaTextarea();
+    }
+  }
+
+  /* ===================== 9. 主流程 ===================== */
+  function addFiles(list, prefix, append) {
+    if (!append) { fileSet = []; rootPrefix = prefix || ''; }
+    else if (!rootPrefix && prefix) rootPrefix = prefix;
+    for (var i = 0; i < list.length; i++) fileSet.push(list[i]);
+  }
+
+  function runCheck() {
+    if (scanning) { say('检查正在进行中，请稍候…'); return; }
+    if (!fileSet.length) { say('还没有文件 —— 请先把仓库目录拖进上面的框里。'); return; }
+    scanning = true;
+    scanToken++;
+    var token = scanToken;
+    var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+    var jsOn = !!optJs.checked;
+
+    btnRun.disabled = true;
+    btnCopy.disabled = true;
+    btnClear.disabled = true;
+    reportEl.innerHTML = '';
+    say('');
+    say('=== 开始检查：共 ' + fileSet.length + ' 个文件，JS 字符串路径检查 = ' + (jsOn ? '开' : '关') + ' ===');
+
+    var idx = buildIndex(fileSet);
+    say('去重后唯一文件 ' + idx.kept.length + ' 个。');
+    setProgress('准备中…', '0 / ' + idx.kept.length);
+
+    var t1 = nowMs();
+    readAll(idx.kept, token).then(function (texts) {
+      if (token !== scanToken) return null;
+      idx.texts = texts;
+      say('内容读取完成（耗时 ' + Math.round(nowMs() - t1) + ' ms），开始解析引用…');
+      setProgress('正在解析引用…', '0 / ' + idx.kept.length);
+      return analyseAsync(idx, jsOn, token);
+    }).then(function (res) {
+      if (token !== scanToken || !res) return;      // 已被更新的任务取代
+      setProgress(null);
+      res.totalFiles = fileSet.length;
+      res.jsOn = jsOn;
+      res.ms = Math.round(nowMs() - t0);
+      lastReport = res;
+      lastPlain = buildPlain(res);
+      renderReport(res);
+      say('检查完成：分析 ' + res.analysed + ' 个文件，提取引用 ' + res.refs
+        + ' 条，失效 ' + res.broken.length + ' 条，孤儿 HTML ' + res.orphans.length + ' 个。');
+      say(res.broken.length
+        ? '⚠ 有 ' + res.broken.length + ' 条引用在集合里找不到文件，见下方表格。'
+        : '✅ 所有本地引用都指向真实存在的文件。');
+      btnRun.disabled = false;
+      btnCopy.disabled = false;
+      btnClear.disabled = false;
+      scanning = false;
+    }).catch(function (e) {
+      if (token !== scanToken) return;
+      setProgress(null);
+      fail('检查过程出错：' + (e && (e.message || e)));
+      btnRun.disabled = false;
+      btnCopy.disabled = !lastPlain;
+      btnClear.disabled = false;
+      scanning = false;
+    });
+  }
+  function nowMs() {
+    return (window.performance && performance.now) ? performance.now() : Date.now();
+  }
+
+  /* ===================== 10. 事件绑定 ===================== */
+  // 拖入：dragover / dragleave / drop
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) { try { e.dataTransfer.dropEffect = 'copy'; } catch (err) { } }
+      drop.classList.add('over');
+    });
+  });
+  drop.addEventListener('dragleave', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    // 只有真正离开 drop 区域才取消高亮（进出子元素也会触发 dragleave）
+    if (e.relatedTarget && drop.contains(e.relatedTarget)) return;
+    drop.classList.remove('over');
+  });
+  drop.addEventListener('drop', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    drop.classList.remove('over');
+
+    var got = collectFromDrop(e.dataTransfer);
+    if (!got.entries.length && !got.files.length) {
+      say('这次拖放没有拿到文件。提示：请拖动「文件夹本身」，不要拖它的快捷方式；' +
+          '也可以用上面的「点这里选择文件夹」。');
+      return;
+    }
+    var append = e.shiftKey && fileSet.length > 0;   // 按住 Shift 拖入 = 追加到已有集合
+    say('拖入内容：' + got.entries.length + ' 个条目 + ' + got.files.length + ' 个散文件'
+      + '（' + (append ? '追加模式（按住 Shift）' : '替换模式') + '）');
+
+    setProgress('正在遍历拖入的目录…', '读取目录项中');
+    scanEntries(got.entries).then(function (list) {
+      // 注意：遍历出来的 path 已经带着最外层目录名（如 Web-UFO-Player/xxx），
+      // 所以不再额外加前缀，否则报告里会出现 Web-UFO-Player/Web-UFO-Player/…
+      var arr = list.concat(got.files.map(function (f) {
+        return { path: f.webkitRelativePath || f.name, file: f };
+      }));
+      addFiles(arr, '', append);
+      setProgress(null);
+      if (!arr.length) { say('目录遍历结果为空 —— 里面没有可读文件？'); return; }
+      say('共收集到 ' + arr.length + ' 个文件（去重前）。已' + (append ? '追加' : '替换') + '文件集合。');
+      var dirCount = 0, other = 0;
+      for (var i = 0; i < arr.length; i++) {
+        var k = extKind(arr[i].path);
+        if (k) dirCount++; else other++;
+      }
+      say('其中可分析类型（.html/.htm/.css' + (optJs.checked ? '/.js' : '') + '）：' + dirCount
+        + ' 个，其它类型 ' + other + ' 个（图片、字体等只作为「存在性」的判据）。');
+      btnRun.disabled = false;
+      btnClear.disabled = false;
+      runCheck();
+    }).catch(function (err) {
+      setProgress(null);
+      fail('遍历目录失败：' + (err && (err.message || err)));
+    });
+  });
+
+  // 选择文件夹（webkitdirectory）
+  picker.addEventListener('change', function () {
+    var fs = picker.files ? Array.prototype.slice.call(picker.files) : [];
+    if (!fs.length) return;
+    // webkitRelativePath 的形式是「根目录名/子目录/文件」，本身就已经带了根目录名
+    addFiles(fs.map(function (f) {
+      return { path: f.webkitRelativePath || f.name, file: f };
+    }), '', false);
+    say('通过文件选择器载入 ' + fs.length + ' 个文件。');
+    btnRun.disabled = false;
+    btnClear.disabled = false;
+    picker.value = '';                 // 允许再次选同一个目录时也触发 change
+    runCheck();
+  });
+
+  // 按钮
+  btnRun.addEventListener('click', function () { runCheck(); });
+  btnCopy.addEventListener('click', function () { copyReport(); });
+  btnClear.addEventListener('click', function () {
+    scanToken++;                       // 让正在跑的任务失效
+    scanning = false;
+    fileSet = [];
+    lastReport = null;
+    lastPlain = '';
+    rootPrefix = '';
+    setProgress(null);
+    reportEl.innerHTML = '';
+    btnRun.disabled = true;
+    btnCopy.disabled = true;
+    btnClear.disabled = true;
+    logEl.textContent = '已清空，等待重新拖入目录…';
+  });
+  optJs.addEventListener('change', function () {
+    if (fileSet.length) say('已' + (optJs.checked ? '开启' : '关闭') + ' JS 字符串路径检查，点「🔄 重新检查」生效。');
+  });
+
+  // 兜底：别让浏览器直接打开被拖入的文件（拖歪到页面其它位置时）
+  ['dragover', 'drop'].forEach(function (ev) {
+    window.addEventListener(ev, function (e) {
+      if (drop.contains(e.target)) return;
+      e.preventDefault();
+    });
+  });
+
+  /* ===================== 11. 自检（无头/手动都能看） ===================== */
+  // 文件加载完顺手跑一遍纯函数自检，确认路径解析与过滤规则符合预期
+  (function selfTest() {
+    var problems = [];
+    function eq(name, got, want) { if (got !== want) problems.push(name + '：得到 ' + JSON.stringify(got) + '，期望 ' + JSON.stringify(want)); }
+
+    eq('解析 ./', resolvePath('TestPage', './a/b.css'), 'TestPage/a/b.css');
+    eq('解析 ../', resolvePath('TestPage', '../WaveControler/js/link.js'), 'WaveControler/js/link.js');
+    eq('解析裸名', resolvePath('WaveControler', 'js/link.js'), 'WaveControler/js/link.js');
+    eq('反斜杠', resolvePath('WaveControler', 'js\\link.js'), 'WaveControler/js/link.js');
+    eq('越界停在根', resolvePath('a', '../../x.css'), 'x.css');
+    eq('目录自身(.)', resolvePath('a/b', '.'), 'a/b');
+    eq('去 query', stripQueryHash('x.css?v=2'), 'x.css');
+    eq('去 hash', stripQueryHash('x.css#L1'), 'x.css');
+    eq('两者都去', stripQueryHash('x.css?v=2#z'), 'x.css');
+    eq('容错解码（非法转义原样保留）', safeDecode('%zz%20'), '%zz%20');
+    eq('解码 %20', safeDecode('a%20b.css'), 'a b.css');
+    eq('跳过 http', skipRef('http://x/y.css', 'http://x/y.css') !== '', true);
+    eq('跳过 //', skipRef('//cdn/x.js', '//cdn/x.js') !== '', true);
+    eq('跳过 data:', skipRef('data:image/png;base64,AA', 'data:image/png;base64,AA') !== '', true);
+    eq('跳过 #', skipRef('#top', '#top') !== '', true);
+    eq('跳过 /开头', skipRef('/js/a.js', '/js/a.js') !== '', true);
+    eq('跳过空串', skipRef('', '') !== '', true);
+    eq('本地相对路径不跳过', skipRef('js/a.js', 'js/a.js') === '', true);
+    eq('扩展名 html', extKind('TestPage/index.html'), 'html');
+    eq('扩展名 css', extKind('a/b.CSS'), 'css');
+    eq('扩展名 js', extKind('a/b.js'), 'js');
+    eq('扩展名 png', extKind('a/b.png'), '');
+    eq('查表键大小写', keyOf('A\\B/C.CSS'), 'a/b/c.css');
+    eq('拆分目录', splitMember('a/b/c.html').dir, 'a/b');
+    eq('拆分文件名', splitMember('a/b/c.html').base, 'c.html');
+
+    // JS 字符串猜测：只认本地相对路径
+    eq('JS 正则收普通相对路径',
+      extractRefs('var a = "img/logo.png";', 'js').length, 1);
+    eq('JS 正则跳过转义斜杠写法',
+      extractRefs('var b = "..\\/js\\/link.js";', 'js').length, 0);
+    eq('JS 正则跳过带协议',
+      extractRefs('var c = "https://cdn.x/y.js"; var d = "a.js";', 'js').length, 1);
+    eq('JS 正则跳过纯文案', extractRefs('var e = "not a path";', 'js').length, 0);
+
+    // HTML / CSS 抽取规则。
+    // ⚠⚠ 这里有两个坑，都是本页真实踩过的：
+    //   1) 本页自己也是被扫描的 .html 之一 —— 夹具里写死的 href="a.css" 会被本页
+    //      当成真引用报出来，所以要拿 EQ / Q 拼出来，别写字面量。
+    //   2) 更要命的是：JS 字符串里若出现「小于号 + 斜杠 + script」这个序列，
+    //      HTML 解析器会当场结束当前脚本元素，整段 JS 一行都不会执行
+    //      （页面看上去完全正常，只是什么都没跑）。所以夹具必须用
+    //      LT + '/scr' + 'ipt>' 这种拼接形式，源码里绝不能出现那个序列。
+    var EQ = '=', Q = '"', LT = '<';
+    eq('HTML 抽三条',
+      extractRefs(LT + 'link href' + EQ + Q + 'a.css' + Q + '><img src' + EQ + Q + 'b.png' + Q +
+                  '><a href' + EQ + Q + '#x' + Q + '>', 'html').length, 3);
+    eq('HTML 无引号属性',
+      extractRefs(LT + 'img src' + EQ + 'img/q.png>', 'html')[0].uri, 'img/q.png');
+    eq('HTML 跳过 script 块里的拼接',
+      extractRefs(LT + 'a href' + EQ + Q + 'ok.css' + Q + '>' +
+                  LT + 'scr' + 'ipt>var s=' + Q + LT + 'a href' + EQ + Q + Q + '+u+' + Q + Q + '">' + Q + ';' +
+                  LT + '/scr' + 'ipt>', 'html').length, 1);
+    eq('HTML 跳过 style 块里的 url()',
+      extractRefs(LT + 'style>.x{background:url(' + Q + LT + '/scr' + 'ipt>' + Q + ')}' +
+                  LT + '/style>', 'html').length, 0);
+    eq('CSS 抽 @import + url()',
+      extractRefs('@import ' + Q + 'a.css' + Q + '; body{background:url(b.png)}', 'css').length, 2);
+
+    if (problems.length) {
+      say('⚠ 内部自检发现 ' + problems.length + ' 处不符合预期（这通常是页面自身的 bug，请反馈）：');
+      problems.slice(0, 8).forEach(function (p) { say('  · ' + p); });
+    } else {
+      say('内部自检通过：路径解析 / 过滤规则 / 扩展名判定都符合预期。');
+    }
+  })();
+
+  say('请把一个文件夹（例如仓库根目录 Web-UFO-Player）拖到上面的虚线框里。');
+  say('本页不做任何自动扫描（file:// 下浏览器不允许读目录），分析对象完全来自你拖入的文件集合。');
+
+  /* ===================== 12. 自动化测试钩子 ===================== */
+  // 给无头浏览器 / 自动化脚本用的最小接口：注入伪文件集合后调用 runCheck()。
+  // 手动使用本页时完全不需要关心它。
+  window.__refCheck = {
+    setFiles: function (arr) {                 // arr: [{path, text, size?}]
+      var list = [];
+      arr.forEach(function (f) {
+        var text = f.text == null ? '' : f.text;
+        var size = typeof f.size === 'number' ? f.size : text.length;
+        list.push({
+          path: f.path,
+          file: {
+            name: f.path.split('/').pop(),
+            size: size,
+            webkitRelativePath: f.path,
+            text: function () { return Promise.resolve(text); }
+          }
+        });
+      });
+      fileSet = list;
+      rootPrefix = '';
+      btnRun.disabled = false;
+      btnClear.disabled = false;
+      return list.length;
+    },
+    run: function () { runCheck(); },
+    setJs: function (on) { optJs.checked = !!on; },
+    lastPlain: function () { return lastPlain; },
+    internals: {
+      resolvePath: resolvePath, safeDecode: safeDecode, stripQueryHash: stripQueryHash,
+      skipRef: skipRef, extKind: extKind, extractRefs: extractRefs, keyOf: keyOf,
+      checkTarget: checkTarget, buildIndex: buildIndex, splitMember: splitMember
+    }
+  };
+})();
+</script>
+</body>
+</html>
